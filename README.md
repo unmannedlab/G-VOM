@@ -11,6 +11,6 @@ ROS Noetic. [ROS Installation](http://wiki.ros.org/ROS/Installation)
 ### 1.2. **Numba**
 Follow [Numba Installation](https://numba.pydata.org/numba-doc/latest/user/installing.html) and [Numba CUDA](https://numba.pydata.org/numba-doc/latest/cuda/overview.html#setting-cuda-installation-path).
 
-##ROS Example
+## ROS Example
 An example ROS implementation is provided in gvom_ros.py.
 
