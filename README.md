@@ -3,9 +3,31 @@
 
 A Python 3 ROS package for lidar based off-road mapping.
 
+![Output_maps](./images/4_maps.png)
+
+
+##  Overview
+
+G-VOM is a local 3D voxel mapping framework for off-road path planning and navigation. It provides both hard and soft positive obstacle detection, negative obstacle detection, slope estimation, and roughness estimation. By using a 3D array lookup table data structure and by leveraging the GPU it can provide online performance.
+
+## Results
+![Vehicles](./images/vehicles.png)
+
+We implemented G-VOM on three vehicles that were tested at the Texas A&M RELLIS campus. A Clearpath Robotics [Warthog](https://clearpathrobotics.com/warthog-unmanned-ground-vehicle-robot/) and [Moose](https://clearpathrobotics.com/moose-ugv/), and a [Polaris Ranger](https://ranger.polaris.com/en-us/). For sensing we used an Ouster OS1-64 lidar on the Warthog and an Ouster OS1-128 lidar on the Moose and Ranger.
+For all vehicles, the system was ran on a laptop with an Nvidia Quadro RTX 4000 GPU and an Intel i9-10885H CPU achieving a mapping rate from 9-12 Hz.
+
+The video below shows autonomous operation on the Warthog at 4 m/s.
+
+[![Long_path_video](https://img.youtube.com/vi/fgMx6gbHCk8/0.jpg)](https://youtu.be/fgMx6gbHCk8)
+
+For more detailed results see the paper.
+
 ##  Prerequisites
 ### **Ubuntu** 
 Ubuntu 64-bit 20.04.
+
+### **Python**
+[Python 3.6](https://www.python.org/downloads/) or later.
 
 ### **Numba CUDA**
 Follow [Numba Installation](https://numba.pydata.org/numba-doc/latest/user/installing.html) and [Numba CUDA](https://numba.pydata.org/numba-doc/latest/cuda/overview.html#setting-cuda-installation-path).
@@ -37,4 +59,6 @@ An example ROS implementation is provided in gvom_ros.py. It subscribes to a Poi
       year={2021},          
 }
 ~~~
+
+
 
