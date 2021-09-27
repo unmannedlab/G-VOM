@@ -29,4 +29,12 @@ Note process_pointcloud and combine_maps can be ran asynchronously. Multiple sen
 ### ROS Example
 An example ROS implementation is provided in gvom_ros.py. It subscribes to a PointCloud2 message and an Odometry message. Additionally, it requires a tf tree between the “odom_frame” and the PointCloud2 message’s frame. It’s assumed that the Odometry message is in the “odom_frame”.
 
+## Cite Us
+~~~text
+@misc{Overbye2021GVOM,
+      title={G-VOM: A GPU Accelerated Voxel Off-Road Mapping System}, 
+      author={Timothy Overbye and Srikanth Saripalli},      
+      year={2021},          
+}
+~~~
 
