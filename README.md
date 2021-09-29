@@ -53,10 +53,13 @@ An example ROS implementation is provided in gvom_ros.py. It subscribes to a Poi
 
 ## Cite Us
 ~~~text
-@misc{Overbye2021GVOM,
+@misc{overbye2021gvom,
       title={G-VOM: A GPU Accelerated Voxel Off-Road Mapping System}, 
-      author={Timothy Overbye and Srikanth Saripalli},      
-      year={2021},          
+      author={Timothy Overbye and Srikanth Saripalli},
+      year={2021},
+      eprint={2109.13176},
+      archivePrefix={arXiv},
+      primaryClass={cs.RO}
 }
 ~~~
 
