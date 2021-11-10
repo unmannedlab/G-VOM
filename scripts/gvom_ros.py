@@ -58,26 +58,26 @@ class VoxelMapper:
         self.sub_cloud = rospy.Subscriber("~cloud", PointCloud2, self.cb_lidar,queue_size=1)
         self.sub_odom = rospy.Subscriber("~odom", Odometry, self.cb_odom,queue_size=1)
         
-        self.s_obstacle_map_pub = rospy.Publisher("~soft_obstacle_map",OccupancyGrid,queue_size = 1)
-        self.p_obstacle_map_pub = rospy.Publisher("~positive_obstacle_map",OccupancyGrid,queue_size = 1)
-        self.n_obstacle_map_pub = rospy.Publisher("~negative_obstacle_map",OccupancyGrid,queue_size = 1)
-        self.h_obstacle_map_pub = rospy.Publisher("~hard_obstacle_map",OccupancyGrid,queue_size = 1)
-        self.g_certainty_pub = rospy.Publisher("~ground_certainty_map",OccupancyGrid,queue_size = 1)
-        self.a_certainty_pub = rospy.Publisher("~all_ground_certainty_map",OccupancyGrid,queue_size = 1)
-        self.r_map_pub = rospy.Publisher("~roughness_map",OccupancyGrid,queue_size = 1)
+        self.s_obstacle_map_pub = rospy.Publisher("~soft_obstacle_map", OccupancyGrid, queue_size = 1)
+        self.p_obstacle_map_pub = rospy.Publisher("~positive_obstacle_map", OccupancyGrid, queue_size = 1)
+        self.n_obstacle_map_pub = rospy.Publisher("~negative_obstacle_map", OccupancyGrid, queue_size = 1)
+        self.h_obstacle_map_pub = rospy.Publisher("~hard_obstacle_map", OccupancyGrid, queue_size = 1)
+        self.g_certainty_pub = rospy.Publisher("~ground_certainty_map", OccupancyGrid, queue_size = 1)
+        self.a_certainty_pub = rospy.Publisher("~all_ground_certainty_map", OccupancyGrid, queue_size = 1)
+        self.r_map_pub = rospy.Publisher("~roughness_map", OccupancyGrid, queue_size = 1)
 
         self.timer = rospy.Timer(rospy.Duration(1./self.freq), self.cb_timer)
         
-        # lidar_debug_pub = rospy.Publisher('/local_planning/voxel/debug/lidar',PointCloud2,queue_size = 1)
-        # voxel_debug_pub = rospy.Publisher('/local_planning/voxel/debug/voxel',PointCloud2,queue_size = 1)
-        # voxel_hm_debug_pub = rospy.Publisher('/local_planning/voxel/debug/height_map',PointCloud2,queue_size = 1)
-        # voxel_inf_hm_debug_pub = rospy.Publisher('/local_planning/voxel/debug/inferred_height_map',PointCloud2,queue_size = 1)
+        self.lidar_debug_pub = rospy.Publisher('~debug/lidar', PointCloud2, queue_size = 1)
+        self.voxel_debug_pub = rospy.Publisher('~debug/voxel', PointCloud2, queue_size = 1)
+        self.voxel_hm_debug_pub = rospy.Publisher('~debug/height_map', PointCloud2, queue_size = 1)
+        self.voxel_inf_hm_debug_pub = rospy.Publisher('~debug/inferred_height_map', PointCloud2, queue_size = 1)
 
     def cb_odom(self, data):
         self.odom_data = (data.pose.pose.position.x,data.pose.pose.position.y,data.pose.pose.position.z)
 
     def cb_lidar(self, data):
-        rospy.loginfo("got scan")
+        # rospy.loginfo("got scan")
    
         if self.odom_data == None:
             print("no odom")
@@ -105,7 +105,7 @@ class VoxelMapper:
         pc = ros_numpy.point_cloud2.pointcloud2_to_xyz_array(data)
         self.voxel_mapper.Process_pointcloud(pc, odom_data, tf_matrix)
 
-        print("     pointcloud rate = " + str(1.0 / (time.time() - scan_time)))
+        # print("     pointcloud rate = " + str(1.0 / (time.time() - scan_time)))
 
     def cb_timer(self, event):
 
@@ -164,22 +164,30 @@ class VoxelMapper:
 
         # TODO: Where is positive obstacle map?
 
-        # Debug maps
-        # voxel_pc = self.voxel_mapper.make_debug_voxel_map()
-        # if not (voxel_pc is None):
-        #     voxel_pc = np.core.records.fromarrays([voxel_pc[:,0],voxel_pc[:,1],voxel_pc[:,2],voxel_pc[:,3],voxel_pc[:,4]],names='x,y,z,solid factor,count')
-        #     self.voxel_debug_pub.publish(ros_numpy.point_cloud2.array_to_pointcloud2(voxel_pc,rospy.Time.now(),odom_frame))
+        ### Debug maps
 
-        # voxel_hm = voxel_mapper.make_debug_height_map()
-        # if not (voxel_hm is None):
-        #     voxel_hm = np.core.records.fromarrays([voxel_hm[:,0],voxel_hm[:,1],voxel_hm[:,2],voxel_hm[:,3],voxel_hm[:,4],voxel_hm[:,5],voxel_hm[:,6],obs_map.flatten('F')],names='x,y,z,roughness,slope_x,slope_y,slope,obstacles')
-        #     self.voxel_hm_debug_pub.publish(ros_numpy.point_cloud2.array_to_pointcloud2(voxel_hm,rospy.Time.now(),odom_frame))
+        # Voxel map
+        voxel_pc = self.voxel_mapper.make_debug_voxel_map()
+        if voxel_pc is not None:
+            voxel_pc = np.core.records.fromarrays([voxel_pc[:,0],voxel_pc[:,1],voxel_pc[:,2],voxel_pc[:,3],voxel_pc[:,4]],names='x,y,z,solid factor,count')
+            self.voxel_debug_pub.publish(ros_numpy.point_cloud2.array_to_pointcloud2(voxel_pc, rospy.Time.now(), self.odom_frame))
+            rospy.loginfo("published voxel debug.")
+
+        # Voxel height map
+        voxel_hm = self.voxel_mapper.make_debug_height_map()
+        if voxel_hm is not None:
+            voxel_hm = np.core.records.fromarrays([voxel_hm[:,0],voxel_hm[:,1],voxel_hm[:,2],voxel_hm[:,3],voxel_hm[:,4],voxel_hm[:,5],voxel_hm[:,6],obs_map.flatten('F')],names='x,y,z,roughness,slope_x,slope_y,slope,obstacles')
+            self.voxel_hm_debug_pub.publish(ros_numpy.point_cloud2.array_to_pointcloud2(voxel_hm, rospy.Time.now(), self.odom_frame))
+            rospy.loginfo("published voxel height map debug.")
     
-        # voxel_inf_hm = voxel_mapper.make_debug_inferred_height_map()
-        # if not (voxel_inf_hm is None):
-        #     voxel_inf_hm = np.core.records.fromarrays([voxel_inf_hm[:,0],voxel_inf_hm[:,1],voxel_inf_hm[:,2]],names='x,y,z')
-        #     self.voxel_inf_hm_debug_pub.publish(ros_numpy.point_cloud2.array_to_pointcloud2(voxel_inf_hm,rospy.Time.now(),odom_frame))
+        # Inferred height map
+        voxel_inf_hm = self.voxel_mapper.make_debug_inferred_height_map()
+        if voxel_inf_hm is not None:
+            voxel_inf_hm = np.core.records.fromarrays([voxel_inf_hm[:,0],voxel_inf_hm[:,1],voxel_inf_hm[:,2]],names='x,y,z')
+            self.voxel_inf_hm_debug_pub.publish(ros_numpy.point_cloud2.array_to_pointcloud2(voxel_inf_hm, rospy.Time.now(), self.odom_frame))
+            rospy.loginfo("published voxel inferred height map debug.")
 
+        # TODO: Where is lidar debug publication?
             
 if __name__ == '__main__':
     rospy.init_node('voxel_mapping')

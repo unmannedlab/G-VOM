@@ -7,7 +7,7 @@
 
         <param name="~odom_frame" value="warty/odom" />
         <param name="~xy_resolution" value="0.40" />
-        <param name="~z_resolution" value="0.2" />
+        <param name="~z_resolution" value="0.4" />
         <param name="~width" value="256" />
         <param name="~height" value="64" />
         <param name="~buffer_size" value="4" />
