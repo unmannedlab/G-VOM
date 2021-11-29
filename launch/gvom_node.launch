@@ -16,7 +16,7 @@
         <param name="~negative_obstacle_threshold" value="0.5" />
         <param name="~density_threshold" value="50" />
         <param name="~slope_obsacle_threshold" value="0.3" />
-        <param name="~min_roughness" value="10" />
+        <param name="~min_roughness" value="-10" />
         <param name="~max_roughness" value="0" />
         <param name="~robot_height" value="2.0" />
         <param name="~robot_radius" value="4.0" />
