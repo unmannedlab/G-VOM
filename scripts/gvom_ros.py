@@ -162,14 +162,12 @@ class VoxelMapper:
         self.r_map_pub.publish(out_map)
         rospy.loginfo("published roughness map.")
 
-        # TODO: Where is positive obstacle map?
-
         ### Debug maps
 
         # Voxel map
         voxel_pc = self.voxel_mapper.make_debug_voxel_map()
         if voxel_pc is not None:
-            voxel_pc = np.core.records.fromarrays([voxel_pc[:,0],voxel_pc[:,1],voxel_pc[:,2],voxel_pc[:,3],voxel_pc[:,4]],names='x,y,z,solid factor,count')
+            voxel_pc = np.core.records.fromarrays([voxel_pc[:,0],voxel_pc[:,1],voxel_pc[:,2],voxel_pc[:,3],voxel_pc[:,4],voxel_pc[:,5],voxel_pc[:,6],voxel_pc[:,7]],names='x,y,z,solid factor,count,eigen_line,eigen_surface,eigen_point')
             self.voxel_debug_pub.publish(ros_numpy.point_cloud2.array_to_pointcloud2(voxel_pc, rospy.Time.now(), self.odom_frame))
             rospy.loginfo("published voxel debug.")
 
