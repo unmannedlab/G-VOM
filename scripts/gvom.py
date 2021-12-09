@@ -42,6 +42,8 @@ class Gvom:
         self.robot_radius = robot_radius
         self.ground_to_lidar_height = ground_to_lidar_height
 
+        self.metrics_count = 9 # Mean: x, y, z; Covariance: xx, xy, xz, yy, yz, zz
+
         self.index_buffer = []
         self.hit_count_buffer = []
         self.total_count_buffer = []
@@ -62,6 +64,7 @@ class Gvom:
         self.inferred_height_map = None
         self.roughness_map = None
         self.guessed_height_delta = None
+        self.voxels_eigenvalues = None
 
         self.buffer_index = 0
         self.last_buffer_index = 0
@@ -180,8 +183,7 @@ class Gvom:
         # Calculate metrics
         #met_time = time.time()
 
-        metrics, min_height = self.__calculate_metrics_master(
-            pointcloud, point_count, hit_count, index_map, cell_count_cpu, origin)
+        metrics, min_height = self.__calculate_metrics_master(pointcloud, point_count, hit_count, index_map, cell_count_cpu, origin)
         #print("     metrics rate = " + str(1.0 / (time.time() - met_time)))
         
 
@@ -254,18 +256,22 @@ class Gvom:
         self.combined_cell_count_cpu = combined_cell_count[0]
         # print(self.combined_cell_count_cpu)
 
+        blockspergrid_cell = math.ceil(self.combined_cell_count_cpu/self.threads_per_block)
         self.combined_hit_count = cuda.device_array([self.combined_cell_count_cpu], dtype=np.int32)
-        self.__init_1D_array[self.blocks,self.threads_per_block](self.combined_hit_count,0,self.combined_cell_count_cpu)
+        self.__init_1D_array[blockspergrid_cell,self.threads_per_block](self.combined_hit_count,0,self.combined_cell_count_cpu)
                 
         self.combined_total_count = cuda.device_array([self.combined_cell_count_cpu], dtype=np.int32)
-        self.__init_1D_array[self.blocks,self.threads_per_block](self.combined_total_count,0,self.combined_cell_count_cpu)
+        self.__init_1D_array[blockspergrid_cell,self.threads_per_block](self.combined_total_count,0,self.combined_cell_count_cpu)
 
-        self.combined_metrics = cuda.device_array([self.combined_cell_count_cpu], dtype=np.float32)
-        self.__init_1D_array[self.blocks,self.threads_per_block](self.combined_metrics,0,self.combined_cell_count_cpu*len(self.metrics))
-        
         self.combined_min_height = cuda.device_array([self.combined_cell_count_cpu], dtype=np.float32)
-        self.__init_1D_array[self.blocks,self.threads_per_block](self.combined_min_height,1,self.combined_cell_count_cpu)
+        self.__init_1D_array[blockspergrid_cell,self.threads_per_block](self.combined_min_height,1,self.combined_cell_count_cpu)
 
+        blockspergrid_cell_2D = math.ceil(self.combined_cell_count_cpu / self.threads_per_block_2D[0])
+        blockspergrid_metric_2D = math.ceil(self.metrics_count / self.threads_per_block_2D[1])
+        blockspergrid_2D = (blockspergrid_cell_2D, blockspergrid_metric_2D)
+
+        self.combined_metrics = cuda.device_array([self.combined_cell_count_cpu,self.metrics_count], dtype=np.float32)
+        self.__init_2D_array[blockspergrid_2D,self.threads_per_block_2D](self.combined_metrics,0,self.combined_cell_count_cpu, self.metrics_count)
 
         # Combines the data in the buffer
         for i in range(0, self.buffer_size):
@@ -297,6 +303,17 @@ class Gvom:
         self.last_combined_metrics = self.combined_metrics
         self.last_combined_min_height = self.combined_min_height
         self.last_combined_origin = self.combined_origin
+
+        # Compute eigenvalues for each voxel
+        blockspergrid_cell_2D = math.ceil(self.combined_cell_count_cpu / self.threads_per_block_2D[0])
+        blockspergrid_eigenvalue_2D = math.ceil(3 / self.threads_per_block_2D[1])
+        blockspergrid_2D = (blockspergrid_cell_2D, blockspergrid_eigenvalue_2D)
+
+        self.voxels_eigenvalues = cuda.device_array([self.combined_cell_count_cpu,3], dtype=np.float32)
+        self.__init_2D_array[blockspergrid_2D,self.threads_per_block_2D](self.voxels_eigenvalues,0,self.combined_cell_count_cpu, 3)
+
+        self.__calculate_eigenvalues[blockspergrid_cell,self.threads_per_block](self.voxels_eigenvalues,self.combined_metrics,self.combined_cell_count_cpu)
+
 
         #print("voxel map rate = " + str(1.0 / (time.time() - voxel_start_time)))
         #map_start_time = time.time()
@@ -382,10 +399,10 @@ class Gvom:
         blockspergrid = (blockspergrid_xy, blockspergrid_xy, blockspergrid_z)
 
         output_voxel_map = np.zeros(
-            [self.combined_cell_count_cpu, 5], np.float32)
+            [self.combined_cell_count_cpu, 8], np.float32)
 
         self.__make_voxel_pointcloud[blockspergrid, self.threads_per_block_3D](
-            self.combined_index_map,self.combined_hit_count,self.combined_total_count, self.combined_origin, output_voxel_map, self.xy_size, self.z_size, self.xy_resolution, self.z_resolution)
+            self.combined_index_map,self.combined_hit_count,self.combined_total_count,self.voxels_eigenvalues, self.combined_origin, output_voxel_map, self.xy_size, self.z_size, self.xy_resolution, self.z_resolution)
 
         return output_voxel_map
 
@@ -459,7 +476,7 @@ class Gvom:
             output_voxel_map[index, 2] = height_map[x, y] - z_resolution
 
     @cuda.jit
-    def __make_voxel_pointcloud(combined_index_map, combined_hit_count,combined_total_count, origin, output_voxel_map, xy_size, z_size, xy_resolution, z_resolution):
+    def __make_voxel_pointcloud(combined_index_map, combined_hit_count,combined_total_count, eigenvalues, origin, output_voxel_map, xy_size, z_size, xy_resolution, z_resolution):
         x, y, z = cuda.grid(3)
         if(x >= xy_size or y >= xy_size or z > z_size):
             return
@@ -472,6 +489,15 @@ class Gvom:
             output_voxel_map[index, 2] = (z + origin[2]) * z_resolution
             output_voxel_map[index, 3] = float(combined_hit_count[index]) / float(combined_total_count[index])
             output_voxel_map[index, 4] = combined_hit_count[index]
+
+            d1 = eigenvalues[index,0] - eigenvalues[index,1]
+            d2 = eigenvalues[index,1] - eigenvalues[index,2]
+
+            output_voxel_map[index, 5] = d1
+            output_voxel_map[index, 6] = d2
+            output_voxel_map[index, 7] = eigenvalues[index,2]
+            #if(d1 > 0.0) and (d2 > 0.0):
+            #    output_voxel_map[index, 7] = math.log10(d1/d2)
 
     @cuda.jit
     def __make_negative_obstacle_map(guessed_height_delta,negative_obstacle_map,negative_obstacle_threshold,xy_size):
@@ -860,8 +886,10 @@ class Gvom:
     def __combine_metrics(combined_metrics, combined_hit_count,combined_total_count,combined_min_height, combined_index_map, combined_origin, old_metrics, old_hit_count,old_total_count,old_min_height, old_index_map, old_origin, voxel_count, metrics_list, xy_size, z_size, num_metrics):
         x, y, z = cuda.grid(3)
 
-        if(x >= xy_size or y >= xy_size or z >= z_size):
+        if(x >= xy_size or y >= xy_size or z >= z_size): # Check kernel bounds
             return
+
+        # Calculate offset between old and new maps
 
         dx = combined_origin[0] - old_origin[0]
         dy = combined_origin[1] - old_origin[1]
@@ -877,6 +905,72 @@ class Gvom:
 
         if(index < 0 or index_old < 0):
             return
+
+       
+
+        
+        ## Combine covariance
+        
+        #self.metrics_count = 9 # Mean: x, y, z; Covariance: xx, xy, xz, yy, yz, zz
+        #                               0  1  2               3   4   5   6   7   8
+
+        
+        # C = (n1 * C1 + n2 * C2 + 
+        #   n1 * (mean_x1 - mean_x_combined) * (mean_y1 - mean_y_combined) + 
+        #   n2 * (mean_x2 - mean_x_combined) * (mean_y2 - mean_y_combined)
+        #   ) / (n1 + n2)
+
+        mean_x_combined = (combined_metrics[index,0] * combined_hit_count[index] + old_metrics[index_old, 0] * old_hit_count[index_old]) / (combined_hit_count[index] + old_hit_count[index_old])
+
+        mean_y_combined = (combined_metrics[index,1] * combined_hit_count[index] + old_metrics[index_old, 1] * old_hit_count[index_old]) / (combined_hit_count[index] + old_hit_count[index_old])
+
+        mean_z_combined = (combined_metrics[index,2] * combined_hit_count[index] + old_metrics[index_old, 2] * old_hit_count[index_old]) / (combined_hit_count[index] + old_hit_count[index_old])
+
+        # xx
+        combined_metrics[index,3] =( combined_hit_count[index] * combined_metrics[index,3] + old_hit_count[index_old] * old_metrics[index_old, 3] + 
+            combined_hit_count[index] * (combined_metrics[index,0] - mean_x_combined) * (combined_metrics[index,0] - mean_x_combined) + 
+            old_hit_count[index_old] *  (old_metrics[index_old,0] - mean_x_combined) *  (old_metrics[index_old,0] - mean_x_combined)
+            ) / (combined_hit_count[index] + old_hit_count[index_old]) 
+
+        # xy
+        combined_metrics[index,4] =( combined_hit_count[index] * combined_metrics[index,4] + old_hit_count[index_old] * old_metrics[index_old, 4] + 
+            combined_hit_count[index] * (combined_metrics[index,0] - mean_x_combined) * (combined_metrics[index,1] - mean_y_combined) + 
+            old_hit_count[index_old] *  (old_metrics[index_old,0] - mean_x_combined) *  (old_metrics[index_old,1] - mean_y_combined)
+            ) / (combined_hit_count[index] + old_hit_count[index_old]) 
+        # xz
+        combined_metrics[index,5] =( combined_hit_count[index] * combined_metrics[index,5] + old_hit_count[index_old] * old_metrics[index_old, 5] + 
+            combined_hit_count[index] * (combined_metrics[index,0] - mean_x_combined) * (combined_metrics[index,2] - mean_z_combined) + 
+            old_hit_count[index_old] *  (old_metrics[index_old,0] - mean_x_combined) *  (old_metrics[index_old,2] - mean_z_combined)
+            ) / (combined_hit_count[index] + old_hit_count[index_old]) 
+
+        # yy
+        combined_metrics[index,6] =( combined_hit_count[index] * combined_metrics[index,6] + old_hit_count[index_old] * old_metrics[index_old, 6] + 
+            combined_hit_count[index] * (combined_metrics[index,1] - mean_y_combined) * (combined_metrics[index,1] - mean_y_combined) + 
+            old_hit_count[index_old] *  (old_metrics[index_old,1] - mean_y_combined) *  (old_metrics[index_old,1] - mean_y_combined)
+            ) / (combined_hit_count[index] + old_hit_count[index_old]) 
+
+        # yz
+        combined_metrics[index,7] =( combined_hit_count[index] * combined_metrics[index,7] + old_hit_count[index_old] * old_metrics[index_old, 7] + 
+            combined_hit_count[index] * (combined_metrics[index,1] - mean_y_combined) * (combined_metrics[index,2] - mean_z_combined) + 
+            old_hit_count[index_old] *  (old_metrics[index_old,1] - mean_y_combined) *  (old_metrics[index_old,2] - mean_z_combined)
+            ) / (combined_hit_count[index] + old_hit_count[index_old]) 
+        
+        # zz
+        combined_metrics[index,8] =( combined_hit_count[index] * combined_metrics[index,8] + old_hit_count[index_old] * old_metrics[index_old, 8] + 
+            combined_hit_count[index] * (combined_metrics[index,2] - mean_z_combined) * (combined_metrics[index,2] - mean_z_combined) + 
+            old_hit_count[index_old] *  (old_metrics[index_old,2] - mean_z_combined) *  (old_metrics[index_old,2] - mean_z_combined)
+            ) / (combined_hit_count[index] + old_hit_count[index_old]) 
+
+        ## Combine mean
+
+        #x
+        combined_metrics[index,0] = mean_x_combined
+        #y
+        combined_metrics[index,1] = mean_y_combined
+        #z
+        combined_metrics[index,2] = mean_z_combined
+
+        ## Combine other metrics
 
         combined_hit_count[index] = combined_hit_count[index] + old_hit_count[index_old]
         combined_total_count[index] = combined_total_count[index] + old_total_count[index_old]
@@ -971,36 +1065,50 @@ class Gvom:
 
     def __calculate_metrics_master(self, pointcloud, point_count, count, index_map, cell_count_cpu, origin):
         # print("mean")
-        
-        mean = cuda.device_array([cell_count_cpu*3], dtype=np.float32)
-        self.__init_1D_array[self.blocks,self.threads_per_block](mean,0,cell_count_cpu*3)
+        #self.metrics_count = 9 # Mean: x, y, z; Covariance: xx, xy, xz, yy, yz, zz
+
+        metric_blocks = self.blocks = math.ceil(self.xy_size*self.xy_size*self.z_size / self.threads_per_block)
+
+        blockspergrid_cell = math.ceil(cell_count_cpu / self.threads_per_block_2D[0])
+        blockspergrid_metric = math.ceil(metric_blocks / self.threads_per_block_2D[1])
+        blockspergrid = (blockspergrid_cell, blockspergrid_metric)
+
+        metrics = cuda.device_array([cell_count_cpu,self.metrics_count])
+        self.__init_2D_array[blockspergrid, self.threads_per_block_2D](metrics,0.0,cell_count_cpu,self.metrics_count)
+
 
         #print("min height")
         min_height = cuda.device_array([cell_count_cpu*3], dtype=np.float32)
-        self.__init_1D_array[self.blocks,self.threads_per_block](min_height,1,cell_count_cpu*3)
+        self.__init_1D_array[math.ceil(cell_count_cpu*3/self.threads_per_block),self.threads_per_block](min_height,1,cell_count_cpu*3)
 
-
-        #print("other metrics")
-        metrics = cuda.device_array([cell_count_cpu*len(self.metrics)], dtype=np.float32)
-        self.__init_1D_array[self.blocks,self.threads_per_block](metrics,0,cell_count_cpu*len(self.metrics))
 
         #print("calc blocks")
-        calculate_blocks = (
-            int(np.ceil(point_count/self.threads_per_block)), 3)
+        calculate_blocks = ( int(np.ceil(point_count/self.threads_per_block)))
+        
         #print("calc mean")
         
-        #self.__calculate_mean[calculate_blocks, self.threads_per_block](
-        #    self.xy_resolution, self.z_resolution, self.xy_size, self.z_size, self.min_distance, index_map, pointcloud, mean, point_count, origin)
+        self.__calculate_mean[calculate_blocks, self.threads_per_block](
+            self.xy_resolution, self.z_resolution, self.xy_size, self.z_size, self.min_distance, index_map, pointcloud, metrics, point_count, origin)
         
         # print("norm")
-        normalize_blocks = (
-            int(np.ceil(cell_count_cpu/self.threads_per_block)), 3)
+        normalize_blocks = ( int(np.ceil(cell_count_cpu/self.threads_per_block_2D[0])), int(np.ceil(3/self.threads_per_block_2D[0])) )
 
-        # self.__normalize_mean[normalize_blocks,self.threads_per_block](mean,count)
+        self.__normalize_mean[normalize_blocks,self.threads_per_block_2D](metrics,count,cell_count_cpu)
         # print("other")
         
-        self.__calculate_metrics[calculate_blocks, self.threads_per_block](
-            self.xy_resolution, self.z_resolution, self.xy_size, self.z_size, self.min_distance, index_map, pointcloud, mean, metrics, min_height, self.metrics, len(self.metrics), count, point_count, origin)
+        self.__calculate_covariance[calculate_blocks,self.threads_per_block](
+
+            self.xy_resolution, self.z_resolution, self.xy_size, self.z_size, self.min_distance, index_map, pointcloud, count, metrics, point_count, origin
+            
+                )
+        
+        normalize_blocks = ( int(np.ceil(cell_count_cpu/self.threads_per_block_2D[0])), int(np.ceil(6/self.threads_per_block_2D[0])) )
+
+
+        self.__normalize_covariance[normalize_blocks,self.threads_per_block_2D](metrics,count,cell_count_cpu)
+
+        self.__calculate_min_height[calculate_blocks, self.threads_per_block](
+            self.xy_resolution, self.z_resolution, self.xy_size, self.z_size, self.min_distance, index_map, pointcloud, min_height, point_count, origin)
         
         # print("return")
 
@@ -1135,7 +1243,7 @@ class Gvom:
                 new[index_map[i]] = old[i]
 
     @cuda.jit
-    def __calculate_mean(xy_resolution, z_resolution, xy_size, z_size, min_distance, index_map, points, mean, point_count, origin):
+    def __calculate_mean(xy_resolution, z_resolution, xy_size, z_size, min_distance, index_map, points, metrics, point_count, origin):
         i = cuda.grid(1)
         if(i < point_count):
 
@@ -1159,25 +1267,28 @@ class Gvom:
 
             local_point = cuda.local.array(shape=3, dtype=numba.float64)
 
-            local_point[0] = points[i, 0] - x_index * xy_resolution
-            local_point[1] = points[i, 1] - y_index * xy_resolution
-            local_point[2] = points[i, 2] - z_index * z_resolution
+            local_point[0] = (points[i, 0]/xy_resolution) - origin[0] - x_index
+            local_point[1] = (points[i, 1]/xy_resolution) - origin[1] - y_index
+            local_point[2] = (points[i, 2]/z_resolution) - origin[2] - z_index
 
-            index = index_map[int(
-                x_index + y_index*xy_size + z_index*xy_size*xy_size)]
+            index = index_map[int( x_index + y_index*xy_size + z_index*xy_size*xy_size )]
 
-            cuda.atomic.add(mean, 3*index, local_point[0])
-            cuda.atomic.add(mean, 1+3*index, local_point[1])
-            cuda.atomic.add(mean, 2+3*index, local_point[2])
+            cuda.atomic.add(metrics, (index,0), local_point[0])
+            cuda.atomic.add(metrics, (index,1), local_point[1])
+            cuda.atomic.add(metrics, (index,2), local_point[2])
 
     @cuda.jit
-    def __normalize_mean(mean, count):
+    def __normalize_mean(metrics, count, cell_count):
         i, j = cuda.grid(2)
+        if(i>=cell_count):
+            return
+        if(j>=3):
+            return
 
-        mean[j + 3*i] = mean[j + 3*i]/count[i]
+        metrics[i,j] = metrics[i,j]/count[i]
 
     @cuda.jit
-    def __calculate_metrics(xy_resolution, z_resolution, xy_size, z_size, min_distance, index_map, points, mean, output_metrics, min_height, metrics_list, num_metrics, count, point_count, origin):
+    def __calculate_covariance(xy_resolution, z_resolution, xy_size, z_size, min_distance, index_map, points, count, metrics, point_count, origin):
         i = cuda.grid(1)
         if(i < point_count):
 
@@ -1201,18 +1312,145 @@ class Gvom:
 
             local_point = cuda.local.array(shape=3, dtype=numba.float64)
 
-            local_point[0] = (points[i, 0]/xy_resolution) - x_index - origin[0]
-            local_point[1] = (points[i, 1]/xy_resolution) - y_index - origin[1]
-            local_point[2] = (points[i, 2]/z_resolution) - z_index - origin[2]
-            index = index_map[int(
-                x_index + y_index*xy_size + z_index*xy_size*xy_size)]
+            local_point[0] = (points[i, 0]/xy_resolution) - origin[0] - x_index
+            local_point[1] = (points[i, 1]/xy_resolution) - origin[1] - y_index
+            local_point[2] = (points[i, 2]/z_resolution) - origin[2] - z_index
 
-            for j in range(num_metrics):
-                if (metrics_list[j, 1] > 0):
-                    cuda.atomic.add(output_metrics, j + index*num_metrics,
-                                    (local_point[metrics_list[j, 0]]-mean[metrics_list[j, 0] + 3*index])**metrics_list[j, 1])
+
+            index = index_map[int( x_index + y_index*xy_size + z_index*xy_size*xy_size )]
+
+            # xx
+            cov_xx = (local_point[0] - metrics[index,0])*(local_point[0] - metrics[index,0])
+            cuda.atomic.add(metrics,(index,3),cov_xx)
+            # xy
+            cov_xy = (local_point[0] - metrics[index,0])*(local_point[1] - metrics[index,1])
+            cuda.atomic.add(metrics,(index,4),cov_xy)
+            # xz
+            cov_xz = (local_point[0] - metrics[index,0])*(local_point[2] - metrics[index,2])
+            cuda.atomic.add(metrics,(index,5),cov_xz)
+            # yy
+            cov_yy = (local_point[1] - metrics[index,1])*(local_point[1] - metrics[index,1])
+            cuda.atomic.add(metrics,(index,6),cov_yy)
+            # yz
+            cov_yz = (local_point[1] - metrics[index,1])*(local_point[2] - metrics[index,2])
+            cuda.atomic.add(metrics,(index,7),cov_yz)
+            # zz
+            cov_zz = (local_point[2] - metrics[index,2])*(local_point[2] - metrics[index,2])
+            cuda.atomic.add(metrics,(index,8),cov_zz)
+            
+    @cuda.jit
+    def __normalize_covariance(metrics, count, cell_count):
+        i, j = cuda.grid(2)
+        if(i>=cell_count):
+            return
+        if(j>=6):
+            return
+
+        if(count[i] <= 0):
+            metrics[i,j+3] = 0
+            return
+
+        metrics[i,j+3] = metrics[i,j+3]/(count[i]) 
+
+    @cuda.jit
+    def __calculate_min_height(xy_resolution, z_resolution, xy_size, z_size, min_distance, index_map, points, min_height, point_count, origin):
+        i = cuda.grid(1)
+        if(i < point_count):
+
+            d2 = points[i, 0]*points[i, 0] + points[i, 1] * points[i, 1] + points[i, 2]*points[i, 2]
+
+            if(d2 < min_distance*min_distance):
+                return
+
+            x_index = math.floor((points[i, 0]/xy_resolution) - origin[0])
+            if(x_index < 0 or x_index >= xy_size):
+                return
+
+            y_index = math.floor((points[i, 1]/xy_resolution) - origin[1])
+            if(y_index < 0 or y_index >= xy_size):
+                return
+
+            z_index = math.floor((points[i, 2]/z_resolution) - origin[2])
+            if(z_index < 0 or z_index >= z_size):
+                return
+
+            local_point = cuda.local.array(shape=3, dtype=numba.float64)
+            
+
+            local_point[0] = (points[i, 0]/xy_resolution) - origin[0] - x_index
+            local_point[1] = (points[i, 1]/xy_resolution) - origin[1] - y_index
+            local_point[2] = (points[i, 2]/z_resolution) - origin[2] - z_index
+
+            
+            index = index_map[int(x_index + y_index*xy_size + z_index*xy_size*xy_size)]
 
             cuda.atomic.min(min_height, index, local_point[2])
+
+    @cuda.jit
+    def __calculate_eigenvalues(voxels_eigenvalues,metrics,cell_count):
+        i = cuda.grid(1)
+
+        if(i >= cell_count):
+            return
+
+        # Mean: x, y, z; Covariance: xx, xy, xz, yy, yz, zz
+        #       0  1  2               3   4   5   6   7   8
+
+        # [xx   xy   xz]
+        # [xy   yy   yz]
+        # [xz   yz   zz]
+
+        xx = metrics[i,3]
+        xy = metrics[i,4]
+        xz = metrics[i,5]
+        yy = metrics[i,6]
+        yz = metrics[i,7]
+        zz = metrics[i,8]
+
+        p1 = xy*xy + xz*xz + yz*yz  
+        q = (xx + yy + zz ) / 3.0
+        
+        if (p1 == 0): # diagonal matrix
+
+            voxels_eigenvalues[i,0] = max(xx,max(yy,zz))
+            
+            voxels_eigenvalues[i,2] = min(xx,min(yy,zz))
+
+            voxels_eigenvalues[i,1] = 3.0 * q - voxels_eigenvalues[i,0] - voxels_eigenvalues[i,2]
+
+
+        else:
+
+            
+            p2 = (xx - q)*(xx - q) + (yy - q)*(yy - q) + (zz - q)*(zz - q) + 2.0 * p1
+            p = math.sqrt(p2 / 6.0)
+            
+            B = numba.cuda.local.array(shape=6, dtype=numba.float64)
+
+            B[0] = (xx - q)/p
+            B[1] = xy / p
+            B[2] = xz / p
+            B[3] = (yy - q)/p
+            B[4] = yz / p
+            B[5] = (zz - q)/p
+
+
+            r =  B[0] * ( B[3] * B[5] - B[4] * B[4] ) - B[1] * ( B[1] * B[5] - B[4] * B[2] ) + B[2] * ( B[1] * B[4] - B[3] * B[2] )
+            r = r / 2
+
+            phi = 0.0
+            if (r <= -1):
+                phi = math.pi / 3.0
+            elif (r >= 1):
+                phi = 0.0
+            else:
+                phi = math.acos(r) / 3.0
+
+            voxels_eigenvalues[i,0] = q + 2.0 * p * math.cos(phi)
+            voxels_eigenvalues[i,2] = q + 2.0 * p * math.cos(phi + (2.0*math.pi/3.0))
+            voxels_eigenvalues[i,1] = 3.0 * q - voxels_eigenvalues[i,0] - voxels_eigenvalues[i,2] 
+
+
 
     @cuda.jit
     def __init_1D_array(array,value,length):
