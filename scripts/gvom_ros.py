@@ -10,8 +10,6 @@ import tf
 import ros_numpy
 import time
 
-import matplotlib.pyplot as plt
-
 
 class VoxelMapper:
     def __init__(self):
@@ -39,6 +37,9 @@ class VoxelMapper:
         self.robot_radius = rospy.get_param("~robot_radius", 4.0)
         self.ground_to_lidar_height = rospy.get_param("~ground_to_lidar_height", 1.0)
         self.freq = rospy.get_param("~freq", 10.) # Hz
+        self.xy_eigen_dist = rospy.get_param("~xy_eigen_dist",1)
+        self.z_eigen_dist = rospy.get_param("~z_eigen_dist",1)
+        
         
         self.voxel_mapper = gvom.Gvom(
             self.xy_resolution,
@@ -53,6 +54,8 @@ class VoxelMapper:
             self.robot_height,
             self.robot_radius,
             self.ground_to_lidar_height,
+            self.xy_eigen_dist,
+            self.z_eigen_dist
         )
 
         self.sub_cloud = rospy.Subscriber("~cloud", PointCloud2, self.cb_lidar,queue_size=1)
@@ -184,8 +187,6 @@ class VoxelMapper:
             voxel_inf_hm = np.core.records.fromarrays([voxel_inf_hm[:,0],voxel_inf_hm[:,1],voxel_inf_hm[:,2]],names='x,y,z')
             self.voxel_inf_hm_debug_pub.publish(ros_numpy.point_cloud2.array_to_pointcloud2(voxel_inf_hm, rospy.Time.now(), self.odom_frame))
             rospy.loginfo("published voxel inferred height map debug.")
-
-        # TODO: Where is lidar debug publication?
             
 if __name__ == '__main__':
     rospy.init_node('voxel_mapping')
