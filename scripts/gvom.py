@@ -1440,6 +1440,8 @@ class Gvom:
         yy = metrics[i,6]
         yz = metrics[i,7]
         zz = metrics[i,8]
+        
+        # https://en.wikipedia.org/wiki/Eigenvalue_algorithm#3%C3%973_matrices
 
         p1 = xy*xy + xz*xz + yz*yz  
         q = (xx + yy + zz ) / 3.0
