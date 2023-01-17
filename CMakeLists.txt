@@ -9,7 +9,7 @@ project(gvom)
 ## is used, also find other catkin packages
 find_package(catkin REQUIRED COMPONENTS
   nav_msgs
-  ros_numpy
+  #ros_numpy
   rospy
   sensor_msgs
   tf

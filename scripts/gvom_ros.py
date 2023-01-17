@@ -83,7 +83,7 @@ class VoxelMapper:
         # rospy.loginfo("got scan")
    
         if self.odom_data == None:
-            print("no odom")
+            rospy.logwarn("no odom")
             return
 
         odom_data = self.odom_data
@@ -106,6 +106,7 @@ class VoxelMapper:
         tf_matrix = self.tf_transformer.fromTranslationRotation(translation,rotation)
         
         pc = ros_numpy.point_cloud2.pointcloud2_to_xyz_array(data)
+        print(pc.shape)
         self.voxel_mapper.Process_pointcloud(pc, odom_data, tf_matrix)
 
         # print("     pointcloud rate = " + str(1.0 / (time.time() - scan_time)))
@@ -115,7 +116,7 @@ class VoxelMapper:
         map_data = self.voxel_mapper.combine_maps()
 
         if map_data is None:
-            rospy.loginfo("map_data is None. returning.")
+            rospy.logwarn("map_data is None. returning.")
             return
 
         map_origin = map_data[0]

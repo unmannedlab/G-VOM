@@ -50,7 +50,7 @@
   <!--   <doc_depend>doxygen</doc_depend> -->
   <buildtool_depend>catkin</buildtool_depend>
   <build_depend>nav_msgs</build_depend>
-  <build_depend>ros_numpy</build_depend>
+  <!-- <build_depend>ros_numpy</build_depend> -->
   <build_depend>rospy</build_depend>
   <build_depend>sensor_msgs</build_depend>
   <build_depend>tf</build_depend>
