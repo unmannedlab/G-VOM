@@ -438,10 +438,23 @@ class Gvom:
         self.radar_obs_map = cuda.device_array([self.xy_size,self.xy_size])
         self.__init_2D_array[blockspergrid, self.threads_per_block_2D](self.radar_obs_map,0,self.xy_size,self.xy_size)
 
+        # make obstacle map
         self.__make_radar_positive_obstacle_map[blockspergrid,self.threads_per_block_2D](self.radar_combined_index_map, self.radar_height_map, self.xy_size, self.z_size, self.z_resolution, self.radar_positive_obstacle_threshold, self.robot_height, self.radar_combined_origin, self.radar_obs_map)
         
+        # make ground visability map
+        visability_map = cuda.device_array([self.xy_size,self.xy_size],dtype=np.int32)
 
-        return self.radar_obs_map
+        self.__make_visability_map[blockspergrid, self.threads_per_block_2D](visability_map,self.radar_height_map,self.xy_size)
+
+
+        #format output data
+        combined_origin_world = self.radar_combined_origin.copy_to_host()
+        combined_origin_world[0] = combined_origin_world[0] * self.xy_resolution
+        combined_origin_world[1] = combined_origin_world[1] * self.xy_resolution
+        combined_origin_world[2] = combined_origin_world[2] * self.z_resolution
+
+        return (combined_origin_world,self.radar_obs_map.copy_to_host(), visability_map.copy_to_host())
+
 
     def combine_maps(self):
         """ Combines all maps in the buffer and processes into 2D maps """
