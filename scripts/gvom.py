@@ -38,7 +38,7 @@ class Gvom:
         self.min_distance = min_distance
 
         self.positive_obstacle_threshold = positive_obstacle_threshold
-        self.radar_positive_obstacle_threshold = positive_obstacle_threshold#radar_positive_obstacle_threshold
+        self.radar_positive_obstacle_threshold = 1.0 * positive_obstacle_threshold + 0.0 * z_resolution#radar_positive_obstacle_threshold
         self.negative_obstacle_threshold = negative_obstacle_threshold
         self.slope_obsacle_threshold = slope_obsacle_threshold
         self.robot_height = robot_height
@@ -48,8 +48,8 @@ class Gvom:
         self.xy_eigen_dist = xy_eigen_dist  # When calculating covariance eigenvalues all points in voxels within a raidus of [xy_eigen_dist] in xy and [z_eigen_dist] in z voxels will be used
         self.z_eigen_dist = z_eigen_dist    # This radius is in number of voxels, ie r = 0 -> just points within the voxel, r=1 a 3x3 voxel cube centered on the voxel
 
-        self.radar_ground_threshold = 18000# Voxels with a return strength above this will be considederd solid for ground segmentation
-        self.radar_obs_threshold = 18000# Voxels with a return strength above this will be considederd solid for obstacle segmentation
+        self.radar_ground_density_threshold = 18000#16000 18000 Voxels with a return strength above this will be considederd solid for ground segmentation
+        self.radar_obs_density_threshold = 24500# Voxels with a return strength above this will be considederd solid for obstacle segmentation
 
         self.metrics_count = 10 # Mean: x, y, z; Covariance: xx, xy, xz, yy, yz, zz; Covariance point count
         self.radar_metrics_count = 5 # Average return strength, radar_point_count, grad x,y,z
@@ -141,7 +141,7 @@ class Gvom:
     def Process_radar_pointcloud(self, pointcloud, ego_position, transform=None):
         """ 
         Imports a pointcloud from radar and processes it into a voxel map then adds the map to the buffer\n
-        Assumes pointcloud is an array with shape [N,3] with x,y,z
+        Assumes pointcloud is an array with shape [N,4] with x,y,z,intensity
         """
 
         # Import pointcloud
@@ -431,15 +431,28 @@ class Gvom:
 
         self.__make_radar_height_map[blockspergrid,self.threads_per_block_2D](
             self.radar_combined_origin, self.radar_combined_index_map, self.radar_combined_metrics, self.xy_size, self.z_size, self.xy_resolution, 
-            self.z_resolution, self.radar_ground_threshold, tmp_height_map)
+            self.z_resolution, self.radar_ground_density_threshold, tmp_height_map)
 
         self.__smooth_height_map[blockspergrid,self.threads_per_block_2D](tmp_height_map,self.radar_height_map,1,self.xy_size)
+
+        self.radar_roughness_map = cuda.device_array([self.xy_size,self.xy_size])
+        self.__init_2D_array[blockspergrid, self.threads_per_block_2D](self.radar_roughness_map,-1.0,self.xy_size,self.xy_size)
+
+        self.radar_x_slope_map = cuda.device_array([self.xy_size,self.xy_size])
+        self.__init_2D_array[blockspergrid, self.threads_per_block_2D](self.radar_x_slope_map,0.0,self.xy_size,self.xy_size)
+
+        self.radar_y_slope_map = cuda.device_array([self.xy_size,self.xy_size])
+        self.__init_2D_array[blockspergrid, self.threads_per_block_2D](self.radar_y_slope_map,0.0,self.xy_size,self.xy_size)
+
+        self.__calculate_slope[blockspergrid, self.threads_per_block_2D](
+            self.radar_height_map, self.xy_size, self.xy_resolution, self.radar_x_slope_map, self.radar_y_slope_map, self.radar_roughness_map)
+
 
         self.radar_obs_map = cuda.device_array([self.xy_size,self.xy_size])
         self.__init_2D_array[blockspergrid, self.threads_per_block_2D](self.radar_obs_map,0,self.xy_size,self.xy_size)
 
         # make obstacle map
-        self.__make_radar_positive_obstacle_map[blockspergrid,self.threads_per_block_2D](self.radar_combined_index_map, self.radar_height_map, self.xy_size, self.z_size, self.z_resolution, self.radar_positive_obstacle_threshold, self.robot_height, self.radar_combined_origin, self.radar_obs_map)
+        self.__make_radar_positive_obstacle_map[blockspergrid,self.threads_per_block_2D](self.radar_combined_index_map, self.radar_height_map, self.radar_combined_metrics, self.xy_size, self.z_size, self.z_resolution,self.radar_x_slope_map, self.radar_y_slope_map, self.slope_obsacle_threshold, self.radar_positive_obstacle_threshold, self.radar_obs_density_threshold, self.robot_height, self.radar_combined_origin, self.radar_obs_map)
         
         # make ground visability map
         visability_map = cuda.device_array([self.xy_size,self.xy_size],dtype=np.int32)
@@ -655,10 +668,12 @@ class Gvom:
 
         return output_voxel_map
 
-    def make_debug_radar_map(self, threshold = 22000):
+    def make_debug_radar_map(self, threshold = None):
         if(self.radar_combined_cell_count_cpu is None):
             print("No data")
             return None
+        if(threshold is None):
+            threshold = self.radar_obs_density_threshold
         blockspergrid_xy = math.ceil(
             self.xy_size / self.threads_per_block_3D[0])
         blockspergrid_z = math.ceil(self.z_size / self.threads_per_block_3D[2])
@@ -696,13 +711,17 @@ class Gvom:
             return None
 
         output_height_map_voxel = np.zeros(
-            [self.xy_size*self.xy_size, 3], np.float32)
+            [self.xy_size*self.xy_size, 7], np.float32)
 
         blockspergrid_xy = math.ceil(
             self.xy_size / self.threads_per_block_2D[0])
         blockspergrid = (blockspergrid_xy, blockspergrid_xy)
-        self.__make_radar_height_map_pointcloud[blockspergrid, self.threads_per_block_2D](
-            self.radar_height_map,self.radar_combined_origin, output_height_map_voxel, self.xy_size, self.xy_resolution,self.z_resolution)
+        #self.__make_radar_height_map_pointcloud[blockspergrid, self.threads_per_block_2D](
+        #    self.radar_height_map,self.radar_combined_origin, output_height_map_voxel, self.xy_size, self.xy_resolution,self.z_resolution)
+        
+        self.__make_height_map_pointcloud[blockspergrid, self.threads_per_block_2D](
+            self.radar_height_map,self.radar_roughness_map,self.radar_x_slope_map,self.radar_y_slope_map, self.radar_combined_origin, output_height_map_voxel, self.xy_size, self.xy_resolution,self.z_resolution)
+
 
         return output_height_map_voxel
 
@@ -829,7 +848,7 @@ class Gvom:
             negative_obstacle_map[x,y] = 100
     
     @cuda.jit
-    def __make_radar_positive_obstacle_map(combined_index_map, radar_height_map, xy_size, z_size, z_resolution, radar_positive_obstacle_threshold, robot_height, origin, radar_obstacle_map):
+    def __make_radar_positive_obstacle_map(combined_index_map, radar_height_map, metrics, xy_size, z_size, z_resolution,x_slope, y_slope, slope_threshold, radar_positive_obstacle_threshold, radar_obs_density_threshold, robot_height, origin, radar_obstacle_map):
         x, y = cuda.grid(2)
         if(x >= xy_size or y >= xy_size):
             return
@@ -848,11 +867,17 @@ class Gvom:
 
         density = 0.0
         n = 0.0
+
+        if(math.sqrt(x_slope[x,y] * x_slope[x,y] + y_slope[x,y] * y_slope[x,y]) >= slope_threshold):
+            radar_obstacle_map[x,y] = 100
+            return
+
         for z in range(min_height_index,max_height_index+1):
             index = int(combined_index_map[int(x + y * xy_size + z * xy_size * xy_size)])
             
             if(index >= 0):
-                radar_obstacle_map[x, y] = 100
+                if(metrics[index,0] >= radar_obs_density_threshold):
+                    radar_obstacle_map[x, y] = 100
 
     @cuda.jit
     def __make_positive_obstacle_map(combined_index_map, height_map, xy_size, z_size, z_resolution, positive_obstacle_threshold,hit_count,total_count, robot_height, origin,x_slope,y_slope,slope_threshold,  obstacle_map):
@@ -898,7 +923,7 @@ class Gvom:
 
 
     @cuda.jit                   
-    def __make_radar_height_map(combined_origin, combined_index_map, metrics, xy_size, z_size,xy_resolution, z_resolution,radar_ground_threshold, output_height_map):
+    def __make_radar_height_map(combined_origin, combined_index_map, metrics, xy_size, z_size,xy_resolution, z_resolution,radar_ground_density_threshold, output_height_map):
         x, y = cuda.grid(2)
         if(x >= xy_size or y >= xy_size):
             return
@@ -912,7 +937,7 @@ class Gvom:
         for z in range(z_size):
             index = combined_index_map[int(x + y * xy_size + z * xy_size * xy_size)]
             if(index >= 0):
-                if(metrics[index,0]>= radar_ground_threshold):
+                if(metrics[index,0]>= radar_ground_density_threshold):
                     output_height_map[x, y] = (z + combined_origin[2]) * z_resolution
                     return
 
