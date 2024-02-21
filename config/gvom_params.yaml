@@ -1,0 +1,19 @@
+gvom_ros:
+  ros__parameters:
+    odom_frame: "warty/odom"
+    xy_resolution: 0.40
+    z_resolution: 0.4
+    width: 256
+    height: 64
+    buffer_size: 4
+    min_point_distance: 1.0
+    positive_obstacle_threshold: 0.50
+    negative_obstacle_threshold: 0.5
+    density_threshold: 50
+    slope_obsacle_threshold: 0.3
+    min_roughness: -10
+    max_roughness: 0
+    robot_height: 2.0
+    robot_radius: 4.0
+    ground_to_lidar_height: 1.0
+    freq: 10.0

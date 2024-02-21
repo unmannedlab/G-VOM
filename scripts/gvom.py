@@ -1,4 +1,3 @@
-from cmath import nan
 import numba
 from numba import vectorize, jit, cuda
 import numpy as np
