@@ -57,7 +57,7 @@ class VoxelMapper(Node):
         self.declare_parameter('robot_height', 2.0)
         self.declare_parameter('robot_radius', 4.0)
         self.declare_parameter('ground_to_lidar_height', 1.0)
-        self.declare_parameter('freq', 10.0)  # Hz
+        self.declare_parameter('freq', 5.0)  # Hz
         self.declare_parameter('xy_eigen_dist', 1)
         self.declare_parameter('z_eigen_dist', 1)
 
@@ -123,10 +123,10 @@ class VoxelMapper(Node):
         output_map.info.resolution = self.xy_resolution
         output_map.info.length_x = self.xy_resolution * self.width
         output_map.info.length_y = self.xy_resolution * self.width
-        output_map.info.pose.orientation.x = 0
-        output_map.info.pose.orientation.y = 0
-        output_map.info.pose.orientation.z = 0
-        output_map.info.pose.orientation.w = 1
+        output_map.info.pose.orientation.x = 0.0
+        output_map.info.pose.orientation.y = 0.0
+        output_map.info.pose.orientation.z = 0.0
+        output_map.info.pose.orientation.w = 1.0
         output_map.info.pose.position.x = map_origin[0] + 0.5 * self.xy_resolution * self.width # GridMap sets the map origin in the center of the map so we need to add an offset
         output_map.info.pose.position.x = map_origin[1] + 0.5 * self.xy_resolution * self.width
         output_map.header.stamp = self.get_clock().now().to_msg()
@@ -142,6 +142,8 @@ class VoxelMapper(Node):
         output_map.data.append(np_to_Float32MultiArray(y_slope_map))
         output_map.data.append(np_to_Float32MultiArray(height_map))
 
+        self.gridmap_pub.publish(output_map)
+        self.get_logger().info("published gridmap.")
         ### Debug maps
 
         # Voxel map
@@ -182,38 +184,38 @@ class VoxelMapper(Node):
         #odom_data = self.odom_data
 
         self.get_logger().info("looking up " + self.odom_frame + " and " + data.header.frame_id)
-        #try:
+        try:
         
-        lidar_frame = data.header.frame_id
-        trans = self.tfBuffer.lookup_transform(self.odom_frame, lidar_frame, rclpy.time.Time.from_msg(data.header.stamp), rclpy.duration.Duration(seconds=1))
-        self.get_logger().info("got tf")
-        translation = np.zeros([3])
-        translation[0] = trans.transform.translation.x
-        translation[1] = trans.transform.translation.y
-        translation[2] = trans.transform.translation.z
+            lidar_frame = data.header.frame_id
+            trans = self.tfBuffer.lookup_transform(self.odom_frame, lidar_frame, rclpy.time.Time.from_msg(data.header.stamp), rclpy.duration.Duration(seconds=1))
+            self.get_logger().info("got tf")
+            translation = np.zeros([3])
+            translation[0] = trans.transform.translation.x
+            translation[1] = trans.transform.translation.y
+            translation[2] = trans.transform.translation.z
 
-        rotation = np.zeros([4])
-        rotation[0] = trans.transform.rotation.x
-        rotation[1] = trans.transform.rotation.y
-        rotation[2] = trans.transform.rotation.z
-        rotation[3] = trans.transform.rotation.w
+            rotation = np.zeros([4])
+            rotation[0] = trans.transform.rotation.x
+            rotation[1] = trans.transform.rotation.y
+            rotation[2] = trans.transform.rotation.z
+            rotation[3] = trans.transform.rotation.w
 
-        r = R.from_quat(rotation)
-        rotation_matrix = r.as_matrix()
+            r = R.from_quat(rotation)
+            rotation_matrix = r.as_matrix()
 
-        tf_matrix = np.eye(4)
-        tf_matrix[:3, :3] = rotation_matrix
-        tf_matrix[:3, 3] = translation 
-        
-        structured_array = pc2.read_points(data, skip_nans=True, field_names=("x", "y", "z"))
-        pc = np.stack([structured_array['x'], structured_array['y'], structured_array['z']], axis=-1)
-        print(pc.shape)
+            tf_matrix = np.eye(4)
+            tf_matrix[:3, :3] = rotation_matrix
+            tf_matrix[:3, 3] = translation 
+            
+            structured_array = pc2.read_points(data, skip_nans=True, field_names=("x", "y", "z"))
+            pc = np.stack([structured_array['x'], structured_array['y'], structured_array['z']], axis=-1)
+            print(pc.shape)
 
-        self.gvom.Process_pointcloud(pc, translation, tf_matrix)
+            self.gvom.Process_pointcloud(pc, translation, tf_matrix)
 
 
-        #except Exception as e:
-        #    self.get_logger().error(f"{e}")
+        except Exception as e:
+            self.get_logger().warn(f"{e}")
 
     def radar_callback(self,data):
         pass

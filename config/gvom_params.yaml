@@ -16,4 +16,4 @@ gvom_ros:
     robot_height: 2.0
     robot_radius: 4.0
     ground_to_lidar_height: 1.0
-    freq: 10.0
+    freq: 5.0
