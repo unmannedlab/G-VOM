@@ -1448,13 +1448,13 @@ class Gvom:
 
         # Import pointcloud
         self.ego_semaphore.acquire()
-        print("acquire ego")
+        #print("acquire ego")
         self.ego_position = ego_position
         self.ego_semaphore.release()
-        print("release ego")
+        #print("release ego")
 
         point_count = pointcloud.shape[0]
-        print(pointcloud.shape)
+        #print(pointcloud.shape)
         pointcloud = cuda.to_device(pointcloud)
 
         # Initilize arrays on GPU
@@ -1518,7 +1518,7 @@ class Gvom:
         # Assign data to buffer
         # Block the main thread from accessing this buffer index wile we write to it
         self.radar_semaphores[self.radar_buffer_index].acquire()
-        print("acquire radar " + str(self.radar_buffer_index))
+        #print("acquire radar " + str(self.radar_buffer_index))
 
         self.radar_index_buffer[self.radar_buffer_index] = index_map
         self.radar_hit_count_buffer[self.radar_buffer_index] = hit_count
@@ -1527,15 +1527,15 @@ class Gvom:
         #self.min_height_buffer[self.buffer_index] = min_height
         self.radar_origin_buffer[self.radar_buffer_index] = origin  
 
-        print(self.radar_origin_buffer)    
+        #print(self.radar_origin_buffer)    
  
         self.radar_last_buffer_index = self.radar_buffer_index
-        print("added data to " + str(self.radar_buffer_index))
+        #print("added data to " + str(self.radar_buffer_index))
         
 
         #release this buffer index
         self.radar_semaphores[self.radar_buffer_index].release()
-        print("release radar " + str(self.radar_buffer_index))
+        #print("release radar " + str(self.radar_buffer_index))
         self.radar_buffer_index += 1
         if(self.radar_buffer_index >= self.radar_buffer_size):
             self.radar_buffer_index = 0
@@ -1548,11 +1548,11 @@ class Gvom:
         
         # Import pointcloud
         self.ego_semaphore.acquire()
-        print("acquire ego")
+        #print("acquire ego")
         
         self.ego_position = ego_position
         self.ego_semaphore.release()
-        print("release ego")
+        #print("release ego")
 
         point_count = pointcloud.shape[0]
         pointcloud = cuda.to_device(pointcloud)
@@ -1560,9 +1560,7 @@ class Gvom:
         # Initilize arrays on GPU
         cell_count = cuda.to_device(np.zeros([1], dtype=np.int32))
         # -1 = unknown, -1 < free space, >= 0 point index in shorter arrays
-        
-        print(self.blocks)
-        print(self.threads_per_block)
+
         index_map = cuda.device_array([self.xy_size*self.xy_size*self.z_size], dtype=np.int32)
         init_1D_array[self.blocks, self.threads_per_block](index_map,-1,self.xy_size*self.xy_size*self.z_size)
         tmp_hit_count = cuda.device_array([self.xy_size*self.xy_size*self.z_size], dtype=np.int32)
@@ -1583,9 +1581,6 @@ class Gvom:
 
         blocks_pointcloud = int(np.ceil(point_count/self.threads_per_block[0]))
         blocks_map = int(np.ceil(self.xy_size*self.xy_size * self.z_size/self.threads_per_block[0]))
-
-        print(pointcloud.shape)
-        print(transform)
 
         # Transform pointcloud
         if not transform is None:
@@ -1619,9 +1614,9 @@ class Gvom:
  
         # Assign data to buffer
         # Block the main thread from accessing this buffer index wile we write to it
-        print("wating for "+ str(self.buffer_index))
+        #print("wating for "+ str(self.buffer_index))
         self.semaphores[self.buffer_index].acquire()
-        print("acquire " + str(self.buffer_index))
+        #print("acquire " + str(self.buffer_index))
 
         self.index_buffer[self.buffer_index] = index_map
         self.hit_count_buffer[self.buffer_index] = hit_count
@@ -1632,7 +1627,7 @@ class Gvom:
         
         #release this buffer index
         self.semaphores[self.buffer_index].release()
-        print("release" + str(self.buffer_index))
+        #print("release" + str(self.buffer_index))
         
         self.last_buffer_index = self.buffer_index
 
@@ -1662,21 +1657,21 @@ class Gvom:
 
         for i in range(0, self.radar_buffer_size):
             self.radar_semaphores[i].acquire()
-            print("acquire radar " + str(i))
+            #print("acquire radar " + str(i))
             if(self.radar_origin_buffer[i] is None):
                 self.radar_semaphores[i].release()
-                print("release radar " + str(i))
-                print("no data in " + str(i))
+                #print("release radar " + str(i))
+                #print("no data in " + str(i))
                 continue
-            print("combine indices")
+            #print("combine indices")
             
             combine_indices[blockspergrid, self.threads_per_block_3D](
                 combined_cell_count, self.radar_combined_index_map, self.radar_combined_origin, self.radar_index_buffer[i], self.voxel_count, self.radar_origin_buffer[i], self.xy_size, self.z_size)
             self.radar_semaphores[i].release()
-            print("release radar " + str(i))
+            #print("release radar " + str(i))
 
         if not (self.radar_last_combined_origin is None):
-            print("combine_old_indices")
+            #print("combine_old_indices")
              #__combine_old_indices
             combine_old_indices[blockspergrid, self.threads_per_block_3D](
                  combined_cell_count, self.radar_combined_index_map, self.radar_combined_origin, self.radar_last_combined_index_map, self.voxel_count, self.radar_last_combined_origin, self.xy_size, self.z_size)
@@ -1698,20 +1693,20 @@ class Gvom:
         for i in range(0, self.radar_buffer_size):
             
             self.radar_semaphores[i].acquire()
-            print("acquire radar " + str(i))
+            #print("acquire radar " + str(i))
 
             if(self.radar_origin_buffer[i] is None):
                 self.radar_semaphores[i].release()
-                print("release radar " + str(i))
+                #print("release radar " + str(i))
                 continue
             
-            print("combine metrics")
+            #print("combine metrics")
             radar_combine_metrics[blockspergrid, self.threads_per_block_3D](
                 self.radar_combined_metrics, self.radar_combined_hit_count, self.radar_combined_index_map, self.radar_combined_origin, self.radar_metrics_buffer[i],
                 self.radar_hit_count_buffer[i], self.radar_index_buffer[i], self.radar_origin_buffer[i], self.xy_size, self.z_size)
             
             self.radar_semaphores[i].release()
-            print("release radar " + str(i))
+            #print("release radar " + str(i))
 
         # fill unknown cells with data from the last combined map
         if not (self.radar_last_combined_origin is None):
@@ -1792,20 +1787,20 @@ class Gvom:
         blockspergrid = (blockspergrid_xy, blockspergrid_xy, blockspergrid_z)
 
         # Combines the index maps and calculates the nessisary size for the combined map
-        print("combine index")
+        #print("combine index")
         for i in range(0, self.buffer_size):
             self.semaphores[i].acquire()
-            print("acquire " + str(i))
+            #print("acquire " + str(i))
             if(self.origin_buffer[i] is None):
                 self.semaphores[i].release()
-                print("release " + str(i))
+                #print("release " + str(i))
                 continue
 
             
             combine_indices[blockspergrid, self.threads_per_block_3D](
                 combined_cell_count, self.combined_index_map, self.combined_origin, self.index_buffer[i], self.voxel_count, self.origin_buffer[i], self.xy_size, self.z_size)
             self.semaphores[i].release()
-            print("release " + str(i))
+            #print("release " + str(i))
 
         if not (self.last_combined_origin is None):
              #print("combine_old_indices")
@@ -1814,7 +1809,6 @@ class Gvom:
                  combined_cell_count, self.combined_index_map, self.combined_origin, self.last_combined_index_map, self.voxel_count, self.last_combined_origin, self.xy_size, self.z_size)
 
         self.combined_cell_count_cpu = combined_cell_count[0]
-        print(self.combined_cell_count_cpu)
 
         blockspergrid_cell = math.ceil(self.combined_cell_count_cpu/self.threads_per_block[0])
         self.combined_hit_count = cuda.device_array([self.combined_cell_count_cpu], dtype=np.int32)
@@ -1832,24 +1826,23 @@ class Gvom:
 
         self.combined_metrics = cuda.device_array([self.combined_cell_count_cpu,self.metrics_count], dtype=np.float32)
         init_2D_array[blockspergrid_2D,self.threads_per_block_2D](self.combined_metrics,0,self.combined_cell_count_cpu, self.metrics_count)
-        print("combine data")
+        #print("combine data")
         # Combines the data in the buffer
         for i in range(0, self.buffer_size):
             
-            print(self.semaphores[i].acquire())
-            print("acquire c " + str(i))
+            #print(self.semaphores[i].acquire())
+            #print("acquire c " + str(i))
 
             if(self.origin_buffer[i] is None):
                 self.semaphores[i].release()
-                print("release  c " + str(i))
+                #print("release  c " + str(i))
                 continue
             
-            print(i)
             combine_metrics[blockspergrid, self.threads_per_block_3D](self.combined_metrics, self.combined_hit_count,self.combined_total_count,self.combined_min_height, self.combined_index_map, self.combined_origin, self.metrics_buffer[
                                                                              i], self.hit_count_buffer[i],self.total_count_buffer[i], self.min_height_buffer[i],self.index_buffer[i], self.origin_buffer[i], self.voxel_count, self.metrics, self.xy_size, self.z_size, len(self.metrics))
             
             self.semaphores[i].release()
-            print("release c " + str(i))
+            #print("release c " + str(i))
 
         # fill unknown cells with data from the last combined map
         if not (self.last_combined_origin is None):
@@ -1868,7 +1861,7 @@ class Gvom:
         self.last_combined_origin = self.combined_origin
 
         # Compute eigenvalues for each voxel
-        print("eigen")
+        #print("eigen")
         blockspergrid_cell_2D = math.ceil(self.combined_cell_count_cpu / self.threads_per_block_2D[0])
         blockspergrid_eigenvalue_2D = math.ceil(3 / self.threads_per_block_2D[1])
         blockspergrid_2D = (blockspergrid_cell_2D, blockspergrid_eigenvalue_2D)
@@ -1883,7 +1876,7 @@ class Gvom:
         #map_start_time = time.time()
 
         # Make 2d maps from combined map
-        print("maps")
+        #print("maps")
         # Make height map from minimum height in lowest cell
         self.height_map = cuda.device_array([self.xy_size,self.xy_size])
         init_2D_array[blockspergrid, self.threads_per_block_2D](self.height_map,-1000.0,self.xy_size,self.xy_size)
@@ -1892,11 +1885,11 @@ class Gvom:
         init_2D_array[blockspergrid, self.threads_per_block_2D](self.inferred_height_map,-1000.0,self.xy_size,self.xy_size)
 
         self.ego_semaphore.acquire()
-        print("acquire ego")
+        #print("acquire ego")
         make_height_map[blockspergrid, self.threads_per_block_2D](
             self.combined_origin, self.combined_index_map, self.combined_min_height, self.xy_size, self.z_size, self.xy_resolution, self.z_resolution,self.ego_position,self.robot_radius,self.ground_to_lidar_height, self.height_map)
         self.ego_semaphore.release()
-        print("release ego")
+        #print("release ego")
 
         make_inferred_height_map[blockspergrid, self.threads_per_block_2D](
             self.combined_origin, self.combined_index_map, self.xy_size, self.z_size, self.z_resolution, self.inferred_height_map)

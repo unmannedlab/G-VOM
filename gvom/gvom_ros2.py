@@ -9,6 +9,7 @@ from std_msgs.msg import Float32MultiArray, MultiArrayDimension
 from scipy.spatial.transform import Rotation as R
 import sensor_msgs_py.point_cloud2 as pc2
 import tf2_ros
+import time
 
 class VoxelMapper(Node):
     def __init__(self):
@@ -106,6 +107,7 @@ class VoxelMapper(Node):
 
 
     def map_pub_callback(self):
+        start_time = time.time()
 
 
         map_data = self.gvom.combine_maps()
@@ -179,7 +181,8 @@ class VoxelMapper(Node):
             self.voxel_inf_hm_debug_pub.publish(msg)
             self.get_logger().info("published voxel inferred height map debug.")
 
-        pass
+        self.get_logger().info("mapping rate: " + str( 1.0/(time.time() - start_time) ))
+
 
     def lidar_callback(self,data):
         #if self.odom_data == None:
@@ -188,6 +191,7 @@ class VoxelMapper(Node):
 
         #odom_data = self.odom_data
 
+        start_time = time.time()
         self.get_logger().info("looking up " + self.odom_frame + " and " + data.header.frame_id)
         try:
         
@@ -214,15 +218,17 @@ class VoxelMapper(Node):
             
             structured_array = pc2.read_points(data, skip_nans=True, field_names=("x", "y", "z"))
             pc = np.stack([structured_array['x'], structured_array['y'], structured_array['z']], axis=-1)
-            print(pc.shape)
 
             self.gvom.Process_pointcloud(pc, translation, tf_matrix)
+            self.get_logger().info("lidar rate: " + str( 1.0/(time.time() - start_time) ))
 
 
         except Exception as e:
             self.get_logger().warn(f"{e}")
 
     def radar_callback(self,data):
+        start_time = time.time()
+        self.get_logger().info("radar rate: " + str( 1.0/(time.time() - start_time) ))
         pass
 
     def odom_callback(self,data):
