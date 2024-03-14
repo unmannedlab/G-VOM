@@ -1,6 +1,6 @@
-gvom_ros:
+gvom:
   ros__parameters:
-    odom_frame: "warty/odom"
+    odom_frame: "warty/gps_odom"
     xy_resolution: 0.40
     z_resolution: 0.4
     width: 256

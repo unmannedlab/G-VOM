@@ -1559,7 +1559,7 @@ class Gvom:
 
         # Initilize arrays on GPU
         cell_count = cuda.to_device(np.zeros([1], dtype=np.int32))
-        # -1 = unknown, -1 < free space, >= 0 point index in shorter arrays
+        # -1 = unknown, < -1 free space, >= 0 point index in shorter arrays
 
         index_map = cuda.device_array([self.xy_size*self.xy_size*self.z_size], dtype=np.int32)
         init_1D_array[self.blocks, self.threads_per_block](index_map,-1,self.xy_size*self.xy_size*self.z_size)

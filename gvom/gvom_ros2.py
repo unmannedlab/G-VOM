@@ -18,9 +18,6 @@ class VoxelMapper(Node):
         self.tfBuffer = tf2_ros.Buffer()
         self.listener = tf2_ros.TransformListener(self.tfBuffer, self)
 
-        self.freq = 10 # Hz
-
-        self.odom_sub = self.subscription = self.create_subscription(Odometry,'odom',self.odom_callback,1)
         self.lidar_sub = self.subscription = self.create_subscription(PointCloud2,'lidar_points',self.lidar_callback,1)
         self.radar_sub = self.subscription = self.create_subscription(PointCloud2,'radar_points',self.radar_callback,1)
 
@@ -32,7 +29,6 @@ class VoxelMapper(Node):
         # self.a_certainty_pub = self.create_publisher(OccupancyGrid,"~all_ground_certainty_map")
         # self.r_map_pub = self.create_publisher(OccupancyGrid,"~roughness_map")
 
-        self.timer = self.create_timer(1.0/self.freq, self.map_pub_callback)
         
         self.lidar_debug_pub = self.create_publisher(PointCloud2, 'debug/lidar', rclpy.qos.qos_profile_default)
         self.voxel_debug_pub = self.create_publisher(PointCloud2, 'debug/voxel', rclpy.qos.qos_profile_default)
@@ -84,6 +80,8 @@ class VoxelMapper(Node):
         self.radar_positive_obstacle_threshold = self.get_parameter('radar_positive_obstacle_threshold').get_parameter_value().double_value
         self.radar_ground_density_threshold = self.get_parameter('radar_ground_density_threshold').get_parameter_value().integer_value
         self.radar_obs_density_threshold = self.get_parameter('radar_obs_density_threshold').get_parameter_value().integer_value
+
+        self.timer = self.create_timer(1.0/self.freq, self.map_pub_callback)
 
         self.gvom = Gvom(
             self.xy_resolution,
@@ -185,11 +183,6 @@ class VoxelMapper(Node):
 
 
     def lidar_callback(self,data):
-        #if self.odom_data == None:
-        #    self.logwarn("no odom")
-        #    return
-
-        #odom_data = self.odom_data
 
         start_time = time.time()
         self.get_logger().info("looking up " + self.odom_frame + " and " + data.header.frame_id)
@@ -228,11 +221,40 @@ class VoxelMapper(Node):
 
     def radar_callback(self,data):
         start_time = time.time()
-        self.get_logger().info("radar rate: " + str( 1.0/(time.time() - start_time) ))
-        pass
+        self.get_logger().info("looking up " + self.odom_frame + " and " + data.header.frame_id)
+        try:
+        
+            radar_frame = data.header.frame_id
+            trans = self.tfBuffer.lookup_transform(self.odom_frame, radar_frame, rclpy.time.Time.from_msg(data.header.stamp), rclpy.duration.Duration(seconds=1))
+            self.get_logger().info("got tf")
+            translation = np.zeros([3])
+            translation[0] = trans.transform.translation.x
+            translation[1] = trans.transform.translation.y
+            translation[2] = trans.transform.translation.z
 
-    def odom_callback(self,data):
-        pass
+            rotation = np.zeros([4])
+            rotation[0] = trans.transform.rotation.x
+            rotation[1] = trans.transform.rotation.y
+            rotation[2] = trans.transform.rotation.z
+            rotation[3] = trans.transform.rotation.w
+
+            r = R.from_quat(rotation)
+            rotation_matrix = r.as_matrix()
+
+            tf_matrix = np.eye(4)
+            tf_matrix[:3, :3] = rotation_matrix
+            tf_matrix[:3, 3] = translation 
+            
+            structured_array = pc2.read_points(data, skip_nans=True, field_names=("x", "y", "z", "intensity"))
+            pc = np.stack([structured_array['x'], structured_array['y'], structured_array['z'], structured_array['intensity']], axis=-1)
+
+            self.gvom.Process_radar_pointcloud(pc, translation, tf_matrix)
+            self.get_logger().info("radar rate: " + str( 1.0/(time.time() - start_time) ))
+
+
+        except Exception as e:
+            self.get_logger().warn(f"{e}")
+        
 
     def fields_from_names(self,names):
         fields = []
