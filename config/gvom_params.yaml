@@ -11,9 +11,12 @@ gvom_ros:
     negative_obstacle_threshold: 0.5
     density_threshold: 50
     slope_obsacle_threshold: 0.3
-    min_roughness: -10
-    max_roughness: 0
     robot_height: 2.0
     robot_radius: 4.0
     ground_to_lidar_height: 1.0
     freq: 5.0
+    xy_eigen_dist: 1
+    z_eigen_dist: 1
+    radar_positive_obstacle_threshold: 0.50
+    radar_ground_density_threshold: 18000
+    radar_obs_density_threshold: 24500

@@ -52,14 +52,15 @@ class VoxelMapper(Node):
         self.declare_parameter('negative_obstacle_threshold', 0.5)
         self.declare_parameter('density_threshold', 50)
         self.declare_parameter('slope_obsacle_threshold', 0.3)
-        self.declare_parameter('min_roughness', -10)
-        self.declare_parameter('max_roughness', 0)
         self.declare_parameter('robot_height', 2.0)
         self.declare_parameter('robot_radius', 4.0)
         self.declare_parameter('ground_to_lidar_height', 1.0)
         self.declare_parameter('freq', 5.0)  # Hz
         self.declare_parameter('xy_eigen_dist', 1)
         self.declare_parameter('z_eigen_dist', 1)
+        self.declare_parameter('radar_positive_obstacle_threshold', 0.50)
+        self.declare_parameter('radar_ground_density_threshold', 18000)
+        self.declare_parameter('radar_obs_density_threshold', 24500)
 
         # Get parameters
         self.odom_frame = self.get_parameter('odom_frame').get_parameter_value().string_value
@@ -73,14 +74,15 @@ class VoxelMapper(Node):
         self.negative_obstacle_threshold = self.get_parameter('negative_obstacle_threshold').get_parameter_value().double_value
         self.density_threshold = self.get_parameter('density_threshold').get_parameter_value().integer_value
         self.slope_obsacle_threshold = self.get_parameter('slope_obsacle_threshold').get_parameter_value().double_value
-        self.min_roughness = self.get_parameter('min_roughness').get_parameter_value().integer_value
-        self.max_roughness = self.get_parameter('max_roughness').get_parameter_value().integer_value
         self.robot_height = self.get_parameter('robot_height').get_parameter_value().double_value
         self.robot_radius = self.get_parameter('robot_radius').get_parameter_value().double_value
         self.ground_to_lidar_height = self.get_parameter('ground_to_lidar_height').get_parameter_value().double_value
         self.freq = self.get_parameter('freq').get_parameter_value().double_value
         self.xy_eigen_dist = self.get_parameter('xy_eigen_dist').get_parameter_value().integer_value
         self.z_eigen_dist = self.get_parameter('z_eigen_dist').get_parameter_value().integer_value
+        self.radar_positive_obstacle_threshold = self.get_parameter('radar_positive_obstacle_threshold').get_parameter_value().double_value
+        self.radar_ground_density_threshold = self.get_parameter('radar_ground_density_threshold').get_parameter_value().integer_value
+        self.radar_obs_density_threshold = self.get_parameter('radar_obs_density_threshold').get_parameter_value().integer_value
 
         self.gvom = Gvom(
             self.xy_resolution,
@@ -96,7 +98,10 @@ class VoxelMapper(Node):
             self.robot_radius,
             self.ground_to_lidar_height,
             self.xy_eigen_dist,
-            self.z_eigen_dist
+            self.z_eigen_dist,
+            self.radar_positive_obstacle_threshold,
+            self.radar_ground_density_threshold, 
+            self.radar_obs_density_threshold
         )
 
 

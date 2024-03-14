@@ -1293,8 +1293,14 @@ class Gvom:
 
     """
 
-    def __init__(self, xy_resolution, z_resolution, xy_size, z_size, buffer_size, min_distance,positive_obstacle_threshold, 
-    negative_obstacle_threshold, slope_obsacle_threshold, robot_height, robot_radius,ground_to_lidar_height,xy_eigen_dist,z_eigen_dist):
+    def __init__(self, xy_resolution, z_resolution,
+    xy_size, z_size, buffer_size, min_distance, 
+    positive_obstacle_threshold, negative_obstacle_threshold,
+    slope_obsacle_threshold, robot_height,
+    robot_radius, ground_to_lidar_height,
+    xy_eigen_dist, z_eigen_dist,
+    radar_positive_obstacle_threshold = None,
+    radar_ground_density_threshold = 18000, radar_obs_density_threshold = 24500):
 
         # print("init")
 
@@ -1312,7 +1318,9 @@ class Gvom:
         self.min_distance = min_distance
 
         self.positive_obstacle_threshold = positive_obstacle_threshold
-        self.radar_positive_obstacle_threshold = 1.0 * positive_obstacle_threshold + 0.0 * z_resolution#radar_positive_obstacle_threshold
+        self.radar_positive_obstacle_threshold = radar_positive_obstacle_threshold 
+        if(self.radar_positive_obstacle_threshold == None):
+            self.radar_positive_obstacle_threshold = self.positive_obstacle_threshold
         self.negative_obstacle_threshold = negative_obstacle_threshold
         self.slope_obsacle_threshold = slope_obsacle_threshold
         self.robot_height = robot_height
@@ -1322,8 +1330,8 @@ class Gvom:
         self.xy_eigen_dist = xy_eigen_dist  # When calculating covariance eigenvalues all points in voxels within a raidus of [xy_eigen_dist] in xy and [z_eigen_dist] in z voxels will be used
         self.z_eigen_dist = z_eigen_dist    # This radius is in number of voxels, ie r = 0 -> just points within the voxel, r=1 a 3x3 voxel cube centered on the voxel
 
-        self.radar_ground_density_threshold = 18000#16000 18000 Voxels with a return strength above this will be considederd solid for ground segmentation
-        self.radar_obs_density_threshold = 24500# Voxels with a return strength above this will be considederd solid for obstacle segmentation
+        self.radar_ground_density_threshold = radar_ground_density_threshold#16000 18000 Voxels with a return strength above this will be considederd solid for ground segmentation
+        self.radar_obs_density_threshold = radar_obs_density_threshold# Voxels with a return strength above this will be considederd solid for obstacle segmentation
 
         self.metrics_count = 10 # Mean: x, y, z; Covariance: xx, xy, xz, yy, yz, zz; Covariance point count
         self.radar_metrics_count = 5 # Average return strength, radar_point_count, grad x,y,z
