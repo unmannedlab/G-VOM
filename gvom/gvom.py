@@ -1284,23 +1284,43 @@ class Gvom:
 
     """ 
     A class to take lidar scanns and create a costmap\n
-    xy_resolution:  x,y resolution in metters of each voxel\n
-    z_resolution:   z resolution in metters of each voxel\n
+    xy_resolution:  x,y resolution of each voxel [m]\n
+    z_resolution:   z resolution of each voxel [m]\n
     xy_size:        Number of voxels in x,y\n
     z_size:         Number of voxels in z\n
     buffer_size:    Number of lidar scans to keep in memory\n
-    min_distance:   Minimum point distance, any points closer than this will be discarded\n
-
+    min_distance:   Minimum point distance, any points closer than this will be discarded [m]\n
+    positive_obstacle_threshold:    Solid voxels greater than this distance above ground will be considered obstacles [m]\n
+    negative_obstacle_threshold:    Holes with a predicted depth greate than this value will be considered obstacles [m]\n
+    slope_obsacle_threshold:    Map cells with a slope greate than this will be considered obstacles [rad]\n
+    robot_height:    Voxels higher than this value above the ground will be ignored [m]\n
+    robot_radius:    The radius of the robot [m]\n
+    ground_to_lidar_height:    Height of the sensor above ground[m]\n
+    xy_eigen_dist:    Number of voxels to consider in x and y for eigenvalue calulation\n
+    z_eigen_dist:    Number of voxels to consider in z for eigenvalue calulation\n
+    radar_positive_obstacle_threshold:    Solid voxels greater than this distance above ground will be considered obstacles (radar)\n
+    radar_ground_density_threshold:    Voxels with an average radar intensity above this will be used for ground estimation\n
+    radar_obs_density_threshold:    Voxels with an average radar intenstity above this will be considered solid\n
     """
 
-    def __init__(self, xy_resolution, z_resolution,
-    xy_size, z_size, buffer_size, min_distance, 
-    positive_obstacle_threshold, negative_obstacle_threshold,
-    slope_obsacle_threshold, robot_height,
-    robot_radius, ground_to_lidar_height,
-    xy_eigen_dist, z_eigen_dist,
+    def __init__(self, 
+    xy_resolution = 0.40, 
+    z_resolution = 0.40,
+    xy_size = 256, 
+    z_size = 64, 
+    buffer_size = 4, 
+    min_distance = 1.0, 
+    positive_obstacle_threshold = 0.50, 
+    negative_obstacle_threshold = 0.50,
+    slope_obsacle_threshold = 0.30, 
+    robot_height = 2.0,
+    robot_radius=1.5, 
+    ground_to_lidar_height=1.0,
+    xy_eigen_dist=1, 
+    z_eigen_dist=1,
     radar_positive_obstacle_threshold = None,
-    radar_ground_density_threshold = 18000, radar_obs_density_threshold = 24500):
+    radar_ground_density_threshold = 18000, 
+    radar_obs_density_threshold = 24500):
 
         # print("init")
 
