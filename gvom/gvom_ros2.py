@@ -123,6 +123,7 @@ class VoxelMapper(Node):
         x_slope_map = map_data[5]
         y_slope_map = map_data[6]
         height_map = map_data[7]
+        height_map[height_map == -1000.0] = np.NAN
 
         output_map = GridMap()
         output_map.info.resolution = self.xy_resolution
@@ -274,12 +275,12 @@ def main(args=None):
 
 
 def np_to_Float32MultiArray(np_array_in):
-    np_array = np_array_in.astype(np.float32)
+    np_array = np.flip(np_array_in).astype(np.float32)
     # Create a Float32MultiArray message
     float32_multi_array_msg = Float32MultiArray()
     
     # Flatten the NumPy array and assign it to the message's data field
-    float32_multi_array_msg.data = np_array.ravel()
+    float32_multi_array_msg.data = np_array.ravel(order='F')
     
     # Set the layout of the MultiArray
     float32_multi_array_msg.layout.dim = []

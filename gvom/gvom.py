@@ -2052,10 +2052,6 @@ class Gvom:
         calculate_return_intensity[calculate_blocks, self.threads_per_block](
         self.xy_resolution, self.z_resolution, self.xy_size, self.z_size, self.min_distance, index_map, pointcloud, metrics, point_count, origin)
 
-
-
-
-
         blockspergrid_cell = math.ceil(cell_count_cpu / self.threads_per_block)
         normalize_radar[blockspergrid_cell,self.threads_per_block](hit_count,metrics,cell_count_cpu)
 
@@ -2105,9 +2101,7 @@ class Gvom:
         
         
         calculate_covariance[calculate_blocks,self.threads_per_block](
-
-            self.xy_resolution, self.z_resolution, self.xy_size, self.z_size, self.min_distance, index_map, pointcloud, count, metrics, point_count, origin, self.xy_eigen_dist, self.z_eigen_dist
-            
+            self.xy_resolution, self.z_resolution, self.xy_size, self.z_size, self.min_distance, index_map, pointcloud, count, metrics, point_count, origin, self.xy_eigen_dist, self.z_eigen_dist           
                 )
         
         normalize_blocks = ( int(np.ceil(cell_count_cpu/self.threads_per_block_2D[0])), int(np.ceil(6/self.threads_per_block_2D[0])) )
