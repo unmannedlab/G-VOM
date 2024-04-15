@@ -1,4 +1,5 @@
 import rclpy
+from rclpy.executors import MultiThreadedExecutor
 import numpy as np
 from rclpy.node import Node
 from .gvom import Gvom
@@ -18,8 +19,8 @@ class VoxelMapper(Node):
         self.tfBuffer = tf2_ros.Buffer()
         self.listener = tf2_ros.TransformListener(self.tfBuffer, self)
 
-        self.lidar_sub = self.subscription = self.create_subscription(PointCloud2,'lidar_points',self.lidar_callback,1)
-        self.radar_sub = self.subscription = self.create_subscription(PointCloud2,'radar_points',self.radar_callback,1)
+        self.lidar_sub = self.create_subscription(PointCloud2,'lidar_points',self.lidar_callback,1)
+        self.radar_sub = self.create_subscription(PointCloud2,'radar_points',self.radar_callback,1)
 
         # self.s_obstacle_map_pub = self.create_publisher(OccupancyGrid, "~soft_obstacle_map")
         # self.p_obstacle_map_pub = self.create_publisher(OccupancyGrid,"~positive_obstacle_map")
@@ -48,7 +49,7 @@ class VoxelMapper(Node):
         self.declare_parameter('positive_obstacle_threshold', 0.50)
         self.declare_parameter('negative_obstacle_threshold', 0.5)
         self.declare_parameter('density_threshold', 50)
-        self.declare_parameter('slope_obsacle_threshold', 0.3)
+        self.declare_parameter('slope_obstacle_threshold', 0.3)
         self.declare_parameter('robot_height', 2.0)
         self.declare_parameter('robot_radius', 4.0)
         self.declare_parameter('ground_to_lidar_height', 1.0)
@@ -70,7 +71,7 @@ class VoxelMapper(Node):
         self.positive_obstacle_threshold = self.get_parameter('positive_obstacle_threshold').get_parameter_value().double_value
         self.negative_obstacle_threshold = self.get_parameter('negative_obstacle_threshold').get_parameter_value().double_value
         self.density_threshold = self.get_parameter('density_threshold').get_parameter_value().integer_value
-        self.slope_obsacle_threshold = self.get_parameter('slope_obsacle_threshold').get_parameter_value().double_value
+        self.slope_obstacle_threshold = self.get_parameter('slope_obstacle_threshold').get_parameter_value().double_value
         self.robot_height = self.get_parameter('robot_height').get_parameter_value().double_value
         self.robot_radius = self.get_parameter('robot_radius').get_parameter_value().double_value
         self.ground_to_lidar_height = self.get_parameter('ground_to_lidar_height').get_parameter_value().double_value
@@ -83,6 +84,8 @@ class VoxelMapper(Node):
 
         self.timer = self.create_timer(1.0/self.freq, self.map_pub_callback)
 
+        self.get_logger().info(self.odom_frame)
+
         self.gvom = Gvom(
             self.xy_resolution,
             self.z_resolution,
@@ -92,7 +95,7 @@ class VoxelMapper(Node):
             self.min_point_distance,
             self.positive_obstacle_threshold,
             self.negative_obstacle_threshold,
-            self.slope_obsacle_threshold,
+            self.slope_obstacle_threshold,
             self.robot_height,
             self.robot_radius,
             self.ground_to_lidar_height,
@@ -134,7 +137,7 @@ class VoxelMapper(Node):
         output_map.info.pose.orientation.z = 0.0
         output_map.info.pose.orientation.w = 1.0
         output_map.info.pose.position.x = map_origin[0] + 0.5 * self.xy_resolution * self.width # GridMap sets the map origin in the center of the map so we need to add an offset
-        output_map.info.pose.position.x = map_origin[1] + 0.5 * self.xy_resolution * self.width
+        output_map.info.pose.position.y = map_origin[1] + 0.5 * self.xy_resolution * self.width
         output_map.header.stamp = self.get_clock().now().to_msg()
         output_map.header.frame_id = self.odom_frame
 
@@ -166,7 +169,7 @@ class VoxelMapper(Node):
         voxel_hm = self.gvom.make_debug_height_map()
         if voxel_hm is not None:
             fields = self.fields_from_names(['x','y','z','roughness','slope_x','slope_y','abs_slope','obstacles'])
-            points = [list(point) for point in zip(voxel_pc[:,0], voxel_pc[:,1], voxel_pc[:,2], voxel_pc[:,3], voxel_pc[:,4], voxel_pc[:,5], voxel_pc[:,6], obs_map.flatten('F'))]
+            points = [list(point) for point in zip(voxel_hm[:,0], voxel_hm[:,1], voxel_hm[:,2], voxel_hm[:,3], voxel_hm[:,4], voxel_hm[:,5], voxel_hm[:,6], obs_map.flatten('F'))]
             msg = pc2.create_cloud(output_map.header,fields,points)            
             self.voxel_hm_debug_pub.publish(msg)
             self.get_logger().info("published voxel height map debug.")
@@ -271,7 +274,19 @@ class VoxelMapper(Node):
 def main(args=None):
     rclpy.init(args=args)
     voxel_mapper = VoxelMapper()
-    rclpy.spin(voxel_mapper)
+    #rclpy.spin(voxel_mapper)
+
+    executor = MultiThreadedExecutor()
+    executor.add_node(voxel_mapper)
+
+    try:
+        executor.spin()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        executor.shutdown()
+        voxel_mapper.destroy_node()
+    rclpy.shutdown()
 
 
 def np_to_Float32MultiArray(np_array_in):

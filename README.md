@@ -1,7 +1,7 @@
 # G-VOM
 ## A GPU Accelerated Voxel Off-Road Mapping System 
 
-A Python 3 ROS package for lidar based off-road mapping.
+A Python 3 ROS package for lidar and radar based off-road mapping.
 
 ![Output_maps](./images/4_maps.png)
 

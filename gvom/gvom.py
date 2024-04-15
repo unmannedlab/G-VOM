@@ -392,14 +392,20 @@ def transform_pointcloud(points, transform, point_count):
     i = cuda.grid(1)
     if(i < point_count):
         
-        x = points[i, 0] * transform[0, 0] + points[i, 1] * transform[0, 1] + points[i, 2] * transform[0, 2] + transform[0, 3]
+        x = points[i, 0] * transform[0, 0] + \
+            points[i, 1] * transform[0, 1] + \
+            points[i, 2] * transform[0, 2] + \
+            transform[0, 3]
        
-        y = points[i, 0] * transform[1, 0] + points[i, 1] * \
-            transform[1, 1] + points[i, 2] * \
-            transform[1, 2] + transform[1, 3]
-        z = points[i, 0] * transform[2, 0] + points[i, 1] * \
-            transform[2, 1] + points[i, 2] * \
-            transform[2, 2] + transform[2, 3]
+        y = points[i, 0] * transform[1, 0] + \
+            points[i, 1] * transform[1, 1] + \
+            points[i, 2] * transform[1, 2] + \
+            transform[1, 3]
+        
+        z = points[i, 0] * transform[2, 0] + \
+            points[i, 1] * transform[2, 1] + \
+            points[i, 2] * transform[2, 2] + \
+            transform[2, 3]
 
         points[i, 0] = x
         points[i, 1] = y
@@ -1802,6 +1808,7 @@ class Gvom:
             self.semaphores[i].release()
             #print("release " + str(i))
 
+        # fill unknown cells with data from the last combined map
         if not (self.last_combined_origin is None):
              #print("combine_old_indices")
              #__combine_old_indices

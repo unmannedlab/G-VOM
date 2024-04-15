@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import os
 from launch import LaunchDescription
 from launch_ros.actions import Node
@@ -10,12 +12,12 @@ def generate_launch_description():
         'config',
         'gvom_params.yaml'
     )
-    
+
     return LaunchDescription([
         Node(
             package='gvom',
-            executable='gvom',
             name='gvom_ros2',
+            executable='gvom',
             output='screen',
             namespace='gvom',
             parameters=[params_file_path],
