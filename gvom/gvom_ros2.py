@@ -19,7 +19,7 @@ class VoxelMapper(Node):
         self.tfBuffer = tf2_ros.Buffer()
         self.listener = tf2_ros.TransformListener(self.tfBuffer, self)
 
-        self.lidar_sub = self.create_subscription(PointCloud2,'lidar_points',self.lidar_callback,1)
+        #self.lidar_sub = self.create_subscription(PointCloud2,'lidar_points',self.lidar_callback,1)
         self.radar_sub = self.create_subscription(PointCloud2,'radar_points',self.radar_callback,1)
 
         # self.s_obstacle_map_pub = self.create_publisher(OccupancyGrid, "~soft_obstacle_map")
@@ -35,8 +35,14 @@ class VoxelMapper(Node):
         self.voxel_debug_pub = self.create_publisher(PointCloud2, 'debug/voxel', rclpy.qos.qos_profile_default)
         self.voxel_hm_debug_pub = self.create_publisher(PointCloud2, 'debug/height_map', rclpy.qos.qos_profile_default)
         self.voxel_inf_hm_debug_pub = self.create_publisher(PointCloud2, 'debug/inferred_height_map', rclpy.qos.qos_profile_default)
+        
+        self.radar_debug_pub = self.create_publisher(PointCloud2, '/debug/radar',rclpy.qos.qos_profile_default)
+        self.radar_debug_obs_pub = self.create_publisher(PointCloud2, '/debug/radar_obs',rclpy.qos.qos_profile_default)
+        self.voxel_radar_hm_debug_pub = self.create_publisher(PointCloud2, '/debug/radar_height_map',rclpy.qos.qos_profile_default)
+
 
         self.gridmap_pub = self.create_publisher(GridMap,'gridmap', rclpy.qos.qos_profile_default)
+        self.gridmap_radar_pub = self.create_publisher(GridMap,'gridmap_radar', rclpy.qos.qos_profile_default)
 
         # Declare parameters
         self.declare_parameter('odom_frame', 'warty/base_link')
@@ -46,6 +52,7 @@ class VoxelMapper(Node):
         self.declare_parameter('height', 64)
         self.declare_parameter('buffer_size', 4)
         self.declare_parameter('min_point_distance', 1.0)
+        self.declare_parameter('min_radar_distance', 1.0)
         self.declare_parameter('positive_obstacle_threshold', 0.50)
         self.declare_parameter('negative_obstacle_threshold', 0.5)
         self.declare_parameter('density_threshold', 50)
@@ -68,6 +75,7 @@ class VoxelMapper(Node):
         self.height = self.get_parameter('height').get_parameter_value().integer_value
         self.buffer_size = self.get_parameter('buffer_size').get_parameter_value().integer_value
         self.min_point_distance = self.get_parameter('min_point_distance').get_parameter_value().double_value
+        self.min_radar_distance = self.get_parameter('min_radar_distance').get_parameter_value().double_value
         self.positive_obstacle_threshold = self.get_parameter('positive_obstacle_threshold').get_parameter_value().double_value
         self.negative_obstacle_threshold = self.get_parameter('negative_obstacle_threshold').get_parameter_value().double_value
         self.density_threshold = self.get_parameter('density_threshold').get_parameter_value().integer_value
@@ -93,6 +101,7 @@ class VoxelMapper(Node):
             self.height,
             self.buffer_size,
             self.min_point_distance,
+            self.min_radar_distance,
             self.positive_obstacle_threshold,
             self.negative_obstacle_threshold,
             self.slope_obstacle_threshold,
@@ -112,76 +121,139 @@ class VoxelMapper(Node):
 
 
         map_data = self.gvom.combine_maps()
+        radar_data = self.gvom.combine_radar_maps()
 
         if map_data is None:
-            self.get_logger().warning("map_data is None. returning.")
+            self.get_logger().warning("map_data is None.")
             
-            return
+        else:
 
-        map_origin = map_data[0] # the location of the 0,0 corner of the map in the odom frame
-        obs_map = map_data[1]
-        neg_map = map_data[2]
-        rough_map = map_data[3]
-        cert_map = map_data[4]
-        x_slope_map = map_data[5]
-        y_slope_map = map_data[6]
-        height_map = map_data[7]
-        height_map[height_map == -1000.0] = np.NAN
+            map_origin = map_data[0] # the location of the 0,0 corner of the map in the odom frame
+            obs_map = map_data[1]
+            neg_map = map_data[2]
+            rough_map = map_data[3]
+            cert_map = map_data[4]
+            x_slope_map = map_data[5]
+            y_slope_map = map_data[6]
+            height_map = map_data[7]
+            height_map[height_map == -1000.0] = np.NAN
 
-        output_map = GridMap()
-        output_map.info.resolution = self.xy_resolution
-        output_map.info.length_x = self.xy_resolution * self.width
-        output_map.info.length_y = self.xy_resolution * self.width
-        output_map.info.pose.orientation.x = 0.0
-        output_map.info.pose.orientation.y = 0.0
-        output_map.info.pose.orientation.z = 0.0
-        output_map.info.pose.orientation.w = 1.0
-        output_map.info.pose.position.x = map_origin[0] + 0.5 * self.xy_resolution * self.width # GridMap sets the map origin in the center of the map so we need to add an offset
-        output_map.info.pose.position.y = map_origin[1] + 0.5 * self.xy_resolution * self.width
-        output_map.header.stamp = self.get_clock().now().to_msg()
-        output_map.header.frame_id = self.odom_frame
+            output_map = GridMap()
+            output_map.info.resolution = self.xy_resolution
+            output_map.info.length_x = self.xy_resolution * self.width
+            output_map.info.length_y = self.xy_resolution * self.width
+            output_map.info.pose.orientation.x = 0.0
+            output_map.info.pose.orientation.y = 0.0
+            output_map.info.pose.orientation.z = 0.0
+            output_map.info.pose.orientation.w = 1.0
+            output_map.info.pose.position.x = map_origin[0] + 0.5 * self.xy_resolution * self.width # GridMap sets the map origin in the center of the map so we need to add an offset
+            output_map.info.pose.position.y = map_origin[1] + 0.5 * self.xy_resolution * self.width
+            output_map.header.stamp = self.get_clock().now().to_msg()
+            output_map.header.frame_id = self.odom_frame
 
 
-        output_map.layers = ["positve obstacles","negative obstacles","roughness","certainty","slope x","slope y","elevation"]
-        output_map.data.append(np_to_Float32MultiArray(obs_map))
-        output_map.data.append(np_to_Float32MultiArray(neg_map))
-        output_map.data.append(np_to_Float32MultiArray(rough_map))
-        output_map.data.append(np_to_Float32MultiArray(cert_map))
-        output_map.data.append(np_to_Float32MultiArray(x_slope_map))
-        output_map.data.append(np_to_Float32MultiArray(y_slope_map))
-        output_map.data.append(np_to_Float32MultiArray(height_map))
+            output_map.layers = ["positve obstacles","negative obstacles","roughness","certainty","slope x","slope y","elevation"]
+            output_map.data.append(np_to_Float32MultiArray(obs_map))
+            output_map.data.append(np_to_Float32MultiArray(neg_map))
+            output_map.data.append(np_to_Float32MultiArray(rough_map))
+            output_map.data.append(np_to_Float32MultiArray(cert_map))
+            output_map.data.append(np_to_Float32MultiArray(x_slope_map))
+            output_map.data.append(np_to_Float32MultiArray(y_slope_map))
+            output_map.data.append(np_to_Float32MultiArray(height_map))
 
-        self.gridmap_pub.publish(output_map)
-        self.get_logger().info("published gridmap.")
-        ### Debug maps
+            self.gridmap_pub.publish(output_map)
+            self.get_logger().info("published gridmap.")
+            ### Debug maps
 
-        # Voxel map
-        voxel_pc = self.gvom.make_debug_voxel_map()
-        if voxel_pc is not None:
+            # Voxel map
+            voxel_pc = self.gvom.make_debug_voxel_map()
+            if voxel_pc is not None:
 
-            fields = self.fields_from_names(['x','y','z','solid factor','count','eigen_line','eigen_surface','eigen_point'])
-            points = [list(point) for point in zip(voxel_pc[:,0], voxel_pc[:,1], voxel_pc[:,2], voxel_pc[:,3], voxel_pc[:,4], voxel_pc[:,5], voxel_pc[:,6], voxel_pc[:,7])]
-            msg = pc2.create_cloud(output_map.header,fields,points)
-            self.voxel_debug_pub.publish(msg)
-            self.get_logger().info("published voxel debug.")
+                fields = self.fields_from_names(['x','y','z','solid factor','count','eigen_line','eigen_surface','eigen_point'])
+                points = [list(point) for point in zip(voxel_pc[:,0], voxel_pc[:,1], voxel_pc[:,2], voxel_pc[:,3], voxel_pc[:,4], voxel_pc[:,5], voxel_pc[:,6], voxel_pc[:,7])]
+                msg = pc2.create_cloud(output_map.header,fields,points)
+                self.voxel_debug_pub.publish(msg)
+                self.get_logger().info("published voxel debug.")
 
-        # Voxel height map
-        voxel_hm = self.gvom.make_debug_height_map()
-        if voxel_hm is not None:
-            fields = self.fields_from_names(['x','y','z','roughness','slope_x','slope_y','abs_slope','obstacles'])
-            points = [list(point) for point in zip(voxel_hm[:,0], voxel_hm[:,1], voxel_hm[:,2], voxel_hm[:,3], voxel_hm[:,4], voxel_hm[:,5], voxel_hm[:,6], obs_map.flatten('F'))]
-            msg = pc2.create_cloud(output_map.header,fields,points)            
-            self.voxel_hm_debug_pub.publish(msg)
-            self.get_logger().info("published voxel height map debug.")
-    
-        # Inferred height map
-        voxel_inf_hm = self.gvom.make_debug_inferred_height_map()
-        if voxel_inf_hm is not None:
-            fields = self.fields_from_names(['x','y','z'])
-            points = [list(point) for point in zip(voxel_inf_hm[:,0],voxel_inf_hm[:,1],voxel_inf_hm[:,2])]
-            msg = pc2.create_cloud(output_map.header,fields,points)            
-            self.voxel_inf_hm_debug_pub.publish(msg)
-            self.get_logger().info("published voxel inferred height map debug.")
+            # Voxel height map
+            voxel_hm = self.gvom.make_debug_height_map()
+            if voxel_hm is not None:
+                fields = self.fields_from_names(['x','y','z','roughness','slope_x','slope_y','abs_slope','obstacles'])
+                points = [list(point) for point in zip(voxel_hm[:,0], voxel_hm[:,1], voxel_hm[:,2], voxel_hm[:,3], voxel_hm[:,4], voxel_hm[:,5], voxel_hm[:,6], obs_map.flatten('F'))]
+                msg = pc2.create_cloud(output_map.header,fields,points)            
+                self.voxel_hm_debug_pub.publish(msg)
+                self.get_logger().info("published voxel height map debug.")
+        
+            # Inferred height map
+            voxel_inf_hm = self.gvom.make_debug_inferred_height_map()
+            if voxel_inf_hm is not None:
+                fields = self.fields_from_names(['x','y','z'])
+                points = [list(point) for point in zip(voxel_inf_hm[:,0],voxel_inf_hm[:,1],voxel_inf_hm[:,2])]
+                msg = pc2.create_cloud(output_map.header,fields,points)            
+                self.voxel_inf_hm_debug_pub.publish(msg)
+                self.get_logger().info("published voxel inferred height map debug.")
+
+        
+        if radar_data is None:
+            self.get_logger().warning("radar_data is None.")
+        else:
+            #combined_origin_world, self.radar_obs_map.copy_to_host(),self.radar_roughness_map.copy_to_host(),visability_map.copy_to_host(),self.radar_x_slope_map.copy_to_host(),self.radar_y_slope_map.copy_to_host(),self.radar_height_map.copy_to_host() )
+            map_origin = radar_data[0] # the location of the 0,0 corner of the map in the odom frame
+            obs_map = radar_data[1]
+            rough_map = radar_data[2]
+            cert_map = radar_data[3]
+            x_slope_map = radar_data[4]
+            y_slope_map = radar_data[5]
+            height_map = radar_data[6]
+            height_map[height_map == -1000.0] = np.NAN
+
+            output_map = GridMap()
+            output_map.info.resolution = self.xy_resolution
+            output_map.info.length_x = self.xy_resolution * self.width
+            output_map.info.length_y = self.xy_resolution * self.width
+            output_map.info.pose.orientation.x = 0.0
+            output_map.info.pose.orientation.y = 0.0
+            output_map.info.pose.orientation.z = 0.0
+            output_map.info.pose.orientation.w = 1.0
+            output_map.info.pose.position.x = map_origin[0] + 0.5 * self.xy_resolution * self.width # GridMap sets the map origin in the center of the map so we need to add an offset
+            output_map.info.pose.position.y = map_origin[1] + 0.5 * self.xy_resolution * self.width
+            output_map.header.stamp = self.get_clock().now().to_msg()
+            output_map.header.frame_id = self.odom_frame
+
+
+            output_map.layers = ["positve obstacles","roughness","certainty","slope x","slope y","elevation"]
+            output_map.data.append(np_to_Float32MultiArray(obs_map))
+            output_map.data.append(np_to_Float32MultiArray(rough_map))
+            output_map.data.append(np_to_Float32MultiArray(cert_map))
+            output_map.data.append(np_to_Float32MultiArray(x_slope_map))
+            output_map.data.append(np_to_Float32MultiArray(y_slope_map))
+            output_map.data.append(np_to_Float32MultiArray(height_map))
+
+            self.gridmap_radar_pub.publish(output_map)
+            self.get_logger().info("published gridmap.")
+            ### Debug maps
+
+            # Voxel map
+            radar_voxel = self.gvom.make_debug_radar_map()
+            if not (radar_voxel is None):
+                fields = self.fields_from_names(['x','y','z','count','intensity','grad_x','grad_y','grad_z','grad_xy'])
+                points = [list(point) for point in zip(radar_voxel[:,0], radar_voxel[:,1], radar_voxel[:,2], radar_voxel[:,3], radar_voxel[:,4], radar_voxel[:,5], radar_voxel[:,6], radar_voxel[:,7],radar_voxel[:,8])]
+                msg = pc2.create_cloud(output_map.header,fields,points)
+                self.radar_debug_obs_pub.publish(msg)
+
+            radar_voxel = self.gvom.make_debug_radar_map(0)
+            if not (radar_voxel is None):
+                fields = self.fields_from_names(['x','y','z','count','intensity','grad_x','grad_y','grad_z','grad_xy'])
+                points = [list(point) for point in zip(radar_voxel[:,0], radar_voxel[:,1], radar_voxel[:,2], radar_voxel[:,3], radar_voxel[:,4], radar_voxel[:,5], radar_voxel[:,6], radar_voxel[:,7],radar_voxel[:,8])]
+                msg = pc2.create_cloud(output_map.header,fields,points)
+                self.radar_debug_pub.publish(msg)
+
+            radar_voxel_hm = self.gvom.make_debug_radar_height_map()
+            if not (radar_voxel_hm is None):
+                fields = self.fields_from_names(['x','y','z','roughness','slope_x','slope_y','slope','obstacles'])
+                points = [list(point) for point in zip(radar_voxel_hm[:,0],radar_voxel_hm[:,1],radar_voxel_hm[:,2],radar_voxel_hm[:,3],radar_voxel_hm[:,4],radar_voxel_hm[:,5],radar_voxel_hm[:,6],obs_map.flatten('F'))]
+                msg = pc2.create_cloud(output_map.header,fields,points)
+                self.voxel_radar_hm_debug_pub.publish(msg)
 
         self.get_logger().info("mapping rate: " + str( 1.0/(time.time() - start_time) ))
 

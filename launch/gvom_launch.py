@@ -23,6 +23,7 @@ def generate_launch_description():
             parameters=[params_file_path],
             remappings=[
                 ('lidar_points', '/warty/lidar_points'),
+                ('radar_points', '/warty/radar_points'),
                 ('odom', '/warty/odom'),
             ]
         ),

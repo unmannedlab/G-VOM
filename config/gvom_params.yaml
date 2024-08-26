@@ -8,6 +8,7 @@ gvom:
       height: 64
       buffer_size: 4
       min_point_distance: 1.0
+      min_radar_distance: 1.0
       positive_obstacle_threshold: 0.50
       negative_obstacle_threshold: 0.5
       density_threshold: 50
@@ -15,7 +16,7 @@ gvom:
       robot_height: 2.0
       robot_radius: 4.0
       ground_to_lidar_height: 1.0
-      freq: 2.0
+      freq: 1.0
       xy_eigen_dist: 1
       z_eigen_dist: 1
       radar_positive_obstacle_threshold: 0.50

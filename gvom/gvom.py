@@ -1316,6 +1316,7 @@ class Gvom:
     z_size = 64, 
     buffer_size = 4, 
     min_distance = 1.0, 
+    min_radar_distance = 1.0,
     positive_obstacle_threshold = 0.50, 
     negative_obstacle_threshold = 0.50,
     slope_obsacle_threshold = 0.30, 
@@ -1342,6 +1343,7 @@ class Gvom:
         self.metrics = np.array([[3,2]])
 
         self.min_distance = min_distance
+        self.min_radar_distance = min_radar_distance
 
         self.positive_obstacle_threshold = positive_obstacle_threshold
         self.radar_positive_obstacle_threshold = radar_positive_obstacle_threshold 
@@ -1771,7 +1773,9 @@ class Gvom:
         combined_origin_world[1] = combined_origin_world[1] * self.xy_resolution
         combined_origin_world[2] = combined_origin_world[2] * self.z_resolution
 
-        return (combined_origin_world,self.radar_obs_map.copy_to_host(), visability_map.copy_to_host())
+        #return (combined_origin_world,self.radar_obs_map.copy_to_host(), visability_map.copy_to_host())
+        return (combined_origin_world, self.radar_obs_map.copy_to_host(),self.radar_roughness_map.copy_to_host(),visability_map.copy_to_host(),self.radar_x_slope_map.copy_to_host(),self.radar_y_slope_map.copy_to_host(),self.radar_height_map.copy_to_host() )
+
 
 
     def combine_maps(self):
