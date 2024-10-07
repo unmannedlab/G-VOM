@@ -19,7 +19,7 @@ class VoxelMapper(Node):
         self.tfBuffer = tf2_ros.Buffer()
         self.listener = tf2_ros.TransformListener(self.tfBuffer, self)
 
-        #self.lidar_sub = self.create_subscription(PointCloud2,'lidar_points',self.lidar_callback,1)
+        self.lidar_sub = self.create_subscription(PointCloud2,'lidar_points',self.lidar_callback,1)
         self.radar_sub = self.create_subscription(PointCloud2,'radar_points',self.radar_callback,1)
 
         # self.s_obstacle_map_pub = self.create_publisher(OccupancyGrid, "~soft_obstacle_map")
@@ -36,9 +36,11 @@ class VoxelMapper(Node):
         self.voxel_hm_debug_pub = self.create_publisher(PointCloud2, 'debug/height_map', rclpy.qos.qos_profile_default)
         self.voxel_inf_hm_debug_pub = self.create_publisher(PointCloud2, 'debug/inferred_height_map', rclpy.qos.qos_profile_default)
         
-        self.radar_debug_pub = self.create_publisher(PointCloud2, '/debug/radar',rclpy.qos.qos_profile_default)
-        self.radar_debug_obs_pub = self.create_publisher(PointCloud2, '/debug/radar_obs',rclpy.qos.qos_profile_default)
-        self.voxel_radar_hm_debug_pub = self.create_publisher(PointCloud2, '/debug/radar_height_map',rclpy.qos.qos_profile_default)
+        self.radar_debug_pub = self.create_publisher(PointCloud2, 'debug/radar',rclpy.qos.qos_profile_default)
+        self.radar_debug_obs_pub = self.create_publisher(PointCloud2, 'debug/radar_obs',rclpy.qos.qos_profile_default)
+        self.voxel_radar_hm_debug_pub = self.create_publisher(PointCloud2, 'debug/radar_height_map',rclpy.qos.qos_profile_default)
+
+        #self.visited_map_pub = self.create_publisher(OccupancyGrid,)
 
 
         self.gridmap_pub = self.create_publisher(GridMap,'gridmap', rclpy.qos.qos_profile_default)
@@ -127,7 +129,7 @@ class VoxelMapper(Node):
             self.get_logger().warning("map_data is None.")
             
         else:
-
+            print(len(map_data))
             map_origin = map_data[0] # the location of the 0,0 corner of the map in the odom frame
             obs_map = map_data[1]
             neg_map = map_data[2]
@@ -137,6 +139,7 @@ class VoxelMapper(Node):
             y_slope_map = map_data[6]
             height_map = map_data[7]
             height_map[height_map == -1000.0] = np.NAN
+            visited_map = map_data[8]
 
             output_map = GridMap()
             output_map.info.resolution = self.xy_resolution
@@ -152,7 +155,7 @@ class VoxelMapper(Node):
             output_map.header.frame_id = self.odom_frame
 
 
-            output_map.layers = ["positve obstacles","negative obstacles","roughness","certainty","slope x","slope y","elevation"]
+            output_map.layers = ["positve obstacles","negative obstacles","roughness","certainty","slope x","slope y","elevation","visited"]
             output_map.data.append(np_to_Float32MultiArray(obs_map))
             output_map.data.append(np_to_Float32MultiArray(neg_map))
             output_map.data.append(np_to_Float32MultiArray(rough_map))
@@ -160,6 +163,7 @@ class VoxelMapper(Node):
             output_map.data.append(np_to_Float32MultiArray(x_slope_map))
             output_map.data.append(np_to_Float32MultiArray(y_slope_map))
             output_map.data.append(np_to_Float32MultiArray(height_map))
+            output_map.data.append(np_to_Float32MultiArray(visited_map))
 
             self.gridmap_pub.publish(output_map)
             self.get_logger().info("published gridmap.")
