@@ -784,9 +784,9 @@ def make_positive_obstacle_map(combined_index_map, height_map, xy_size, z_size, 
     if(x >= xy_size or y >= xy_size):
         return
 
-    if(math.sqrt(x_slope[x,y] * x_slope[x,y] + y_slope[x,y] * y_slope[x,y]) >= slope_threshold):
-        obstacle_map[x,y] = 100
-        return
+    #if(math.sqrt(x_slope[x,y] * x_slope[x,y] + y_slope[x,y] * y_slope[x,y]) >= slope_threshold):
+    #    obstacle_map[x,y] = 100
+    #   return
 
 
     min_obs_height = height_map[x,y] + positive_obstacle_threshold
@@ -807,9 +807,12 @@ def make_positive_obstacle_map(combined_index_map, height_map, xy_size, z_size, 
         index = int(combined_index_map[int(x + y * xy_size + z * xy_size * xy_size)])
         
         if(index >= 0):
+            
             if(hit_count[index] > 10):
-                n += float(total_count[index])
-                density += float(hit_count[index])
+                solid_factor = float(hit_count[index]) / float(total_count[index])
+                if(solid_factor > 0.50):
+                    n += float(total_count[index])
+                    density += float(hit_count[index])
 
     
     if(n>0.0):

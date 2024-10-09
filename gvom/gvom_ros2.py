@@ -96,6 +96,8 @@ class VoxelMapper(Node):
 
         self.get_logger().info("odom frame is: " + self.odom_frame)
 
+        self.training_data = []
+
         self.gvom = Gvom(
             self.xy_resolution,
             self.z_resolution,
@@ -140,6 +142,30 @@ class VoxelMapper(Node):
             visited_map = map_data[8]
             entered_map = map_data[9]
 
+            # 0: unknown
+            # 1: has been driven over
+            # 2: visable and no obstacles
+            # 3: non-traversable
+
+            lidar_traversablilty = np.zeros([self.width,self.width])
+
+            lidar_traversablilty[cert_map >0] = 2
+
+            total_slope = np.sqrt(x_slope_map*x_slope_map + y_slope_map*y_slope_map)
+
+            # slope is too large
+            lidar_traversablilty[total_slope > 1.0] = 3
+            # positive obstacels
+            lidar_traversablilty[obs_map > 50] = 3
+
+            lidar_traversablilty[visited_map == 1] = 1
+
+            if(radar_data is not None):
+                # generate training data
+                pass
+                
+
+
             output_map = GridMap()
             output_map.info.resolution = self.xy_resolution
             output_map.info.length_x = self.xy_resolution * self.width
@@ -154,16 +180,18 @@ class VoxelMapper(Node):
             output_map.header.frame_id = self.odom_frame
 
 
-            output_map.layers = ["positve obstacles","negative obstacles","roughness","certainty","slope x","slope y","elevation","visited","entered_map"]
+            output_map.layers = ["positve obstacles","negative obstacles","roughness","certainty","slope x","slope y","slope abs","elevation","visited","entered_map", "lidar_traversablilty"]
             output_map.data.append(np_to_Float32MultiArray(obs_map))
             output_map.data.append(np_to_Float32MultiArray(neg_map))
             output_map.data.append(np_to_Float32MultiArray(rough_map))
             output_map.data.append(np_to_Float32MultiArray(cert_map))
             output_map.data.append(np_to_Float32MultiArray(x_slope_map))
             output_map.data.append(np_to_Float32MultiArray(y_slope_map))
+            output_map.data.append(np_to_Float32MultiArray(total_slope))
             output_map.data.append(np_to_Float32MultiArray(height_map))
             output_map.data.append(np_to_Float32MultiArray(visited_map))
             output_map.data.append(np_to_Float32MultiArray(entered_map))
+            output_map.data.append(np_to_Float32MultiArray(lidar_traversablilty))
 
             self.gridmap_pub.publish(output_map)
             self.get_logger().info("published gridmap.")
@@ -373,15 +401,22 @@ def np_to_Float32MultiArray(np_array_in):
     # Flatten the NumPy array and assign it to the message's data field
     float32_multi_array_msg.data = np_array.ravel(order='F')
     
-    # Set the layout of the MultiArray
+    # Set the layout of the MultiArray with specific labels
     float32_multi_array_msg.layout.dim = []
-    for dim in range(np_array.ndim):
-        # Create a MultiArrayDimension for each dimension in the NumPy array
-        dimension = MultiArrayDimension()
-        dimension.label = f'dim{dim}'
-        dimension.size = np_array.shape[dim]
-        dimension.stride = np_array.strides[dim] // np_array.itemsize
-        float32_multi_array_msg.layout.dim.append(dimension)
+    
+    # First dimension (rows)
+    row_dim = MultiArrayDimension()
+    row_dim.label = "column_index"  
+    row_dim.size = np_array.shape[0]
+    row_dim.stride = np_array.shape[0] * np_array.shape[1]
+    float32_multi_array_msg.layout.dim.append(row_dim)
+    
+    # Second dimension (columns)
+    col_dim = MultiArrayDimension()
+    col_dim.label = "row_index"  
+    col_dim.size = np_array.shape[1]
+    col_dim.stride = np_array.shape[1]
+    float32_multi_array_msg.layout.dim.append(col_dim)
     
     float32_multi_array_msg.layout.data_offset = 0
     
