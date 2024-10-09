@@ -584,6 +584,58 @@ def combine_2d_map(combined_output_map, input_map, combined_origin, old_origin, 
 
     #combined_output_map[x,y] = input_map[x+dx,y+dy]
 
+@cuda.jit
+def make_visited_map(output_map, input_map, close_dist, far_dist, combined_origin, old_origin, xy_size):
+    # 0: unknown
+    # 1: has entered within near dist
+    # 2: to be sent
+    # 3: sent
+    x, y = cuda.grid(2)
+
+    if(x >= xy_size or y >= xy_size):
+        return
+
+    dx = int(combined_origin[0] - old_origin[0])
+    dy = int(combined_origin[1] - old_origin[1])
+    output_map[x,y] = 0
+    if((x + dx) >= xy_size or (y + dy) >= xy_size or (x+dx) < 0 or (y+dy) < 0):
+        return
+    
+    
+    # shift everything to new frame
+    output_map[x,y] = input_map[x+dx,y+dy]
+
+    # calculate new values
+
+    dist = (x - xy_size/2) * (x - xy_size/2) + (y - xy_size/2) * (y - xy_size/2)
+
+    if(output_map[x,y] == 2):
+        output_map[x,y] = 3
+
+    if(dist < close_dist*close_dist and output_map[x,y] == 0):
+        output_map[x,y] = 1
+    
+    if(dist > far_dist*far_dist and output_map[x,y] == 1):
+        output_map[x,y] = 2
+
+
+    if(dist < close_dist*close_dist):
+        output_map[x,y] = 1
+
+
+@cuda.jit
+def copy_2d_map(output_map, input_map, xy_size):
+    # 0: unknown
+    # 1: has entered within near dist
+    # 2: to be sent
+    # 3: sent
+    x, y = cuda.grid(2)
+
+    if(x >= xy_size or y >= xy_size):
+        return
+
+    output_map[x,y] = input_map[x,y]        
+
 
 @cuda.jit
 def make_visability_map(visability,height_map,xy_size):
@@ -1468,6 +1520,13 @@ class Gvom:
         self.threads_per_block_3D = (8, 8, 4)
         self.threads_per_block_2D = (16, 16)
 
+        self.entered_map_2d = cuda.device_array([self.xy_size,self.xy_size], dtype=np.int32)
+        self.last_entered_map_2d = cuda.device_array([self.xy_size,self.xy_size], dtype=np.int32)
+
+        self.blockspergrid_2D_map = (math.ceil(self.xy_size/self.threads_per_block_2D[0]),math.ceil(self.xy_size/self.threads_per_block_2D[0]))
+        init_2D_array[self.blockspergrid_2D_map,self.threads_per_block_2D](self.entered_map_2d,0,self.xy_size, self.xy_size)
+        init_2D_array[self.blockspergrid_2D_map,self.threads_per_block_2D](self.last_entered_map_2d,0,self.xy_size, self.xy_size)
+
         self.blocks = (math.ceil(self.xy_size*self.xy_size*self.z_size / self.threads_per_block[0]),)
 
         self.ego_semaphore = threading.Semaphore()
@@ -1831,7 +1890,7 @@ class Gvom:
 
     def combine_maps(self):
         """ Combines all maps in the buffer and processes into 2D maps """
-        #voxel_start_time = time.time()
+        voxel_start_time = time.time()
         if(self.origin_buffer[self.last_buffer_index] is None):
             print("WARNING: No data in buffer")
             return
@@ -1857,9 +1916,6 @@ class Gvom:
                 #print("release " + str(i))
                 continue
 
-            
-            
-
             combine_indices[blockspergrid, self.threads_per_block_3D](
                 combined_cell_count, self.combined_index_map, self.combined_origin, self.index_buffer[i], self.voxel_count, self.origin_buffer[i], self.xy_size, self.z_size)
             self.semaphores[i].release()
@@ -1867,7 +1923,7 @@ class Gvom:
 
         # fill unknown cells with data from the last combined map
         if not (self.last_combined_origin is None):
-             #print("combine_old_indices")
+            #print("combine_old_indices")
              #__combine_old_indices
             combine_old_indices[blockspergrid, self.threads_per_block_3D](
                  combined_cell_count, self.combined_index_map, self.combined_origin, self.last_combined_index_map, self.voxel_count, self.last_combined_origin, self.xy_size, self.z_size)
@@ -1891,9 +1947,8 @@ class Gvom:
         self.combined_metrics = cuda.device_array([self.combined_cell_count_cpu,self.metrics_count], dtype=np.float32)
         init_2D_array[blockspergrid_2D,self.threads_per_block_2D](self.combined_metrics,0,self.combined_cell_count_cpu, self.metrics_count)
         
-        blockspergrid_2D_map = (math.ceil(self.xy_size/self.threads_per_block_2D[0]),math.ceil(self.xy_size/self.threads_per_block_2D[0]))
         visited_map_2d = cuda.device_array([self.xy_size,self.xy_size], dtype=np.float32)
-        init_2D_array[blockspergrid_2D_map,self.threads_per_block_2D](visited_map_2d,0,self.xy_size, self.xy_size)
+        init_2D_array[self.blockspergrid_2D_map,self.threads_per_block_2D](visited_map_2d,0,self.xy_size, self.xy_size)
 
         #print("combine data")
         # Combines the data in the buffer
@@ -1911,7 +1966,7 @@ class Gvom:
             
             # Combine visited map
 
-            combine_2d_map[blockspergrid_2D_map,self.threads_per_block_2D](visited_map_2d,self.visited_map_2d_buffer[i],self.combined_origin,self.origin_buffer[i],self.xy_size)
+            combine_2d_map[self.blockspergrid_2D_map,self.threads_per_block_2D](visited_map_2d,self.visited_map_2d_buffer[i],self.combined_origin,self.origin_buffer[i],self.xy_size)
 
             combine_metrics[blockspergrid, self.threads_per_block_3D](self.combined_metrics, self.combined_hit_count,self.combined_total_count,self.combined_min_height, self.combined_index_map, self.combined_origin, self.metrics_buffer[
                                                                              i], self.hit_count_buffer[i],self.total_count_buffer[i], self.min_height_buffer[i],self.index_buffer[i], self.origin_buffer[i], self.voxel_count, self.metrics, self.xy_size, self.z_size, len(self.metrics))
@@ -1925,7 +1980,15 @@ class Gvom:
             combine_metrics[blockspergrid, self.threads_per_block_3D](self.combined_metrics, self.combined_hit_count,self.combined_total_count,self.combined_min_height, self.combined_index_map, self.combined_origin, self.last_combined_metrics,
                                                                                   self.last_combined_hit_count,self.last_combined_total_count,self.last_combined_min_height, self.last_combined_index_map, self.last_combined_origin, self.voxel_count, self.metrics, self.xy_size, self.z_size, len(self.metrics))
             
-            combine_2d_map[blockspergrid_2D_map,self.threads_per_block_2D](visited_map_2d,self.last_combined_visited_map_2d,self.combined_origin,self.last_combined_origin,self.xy_size)
+            combine_2d_map[self.blockspergrid_2D_map,self.threads_per_block_2D](visited_map_2d,self.last_combined_visited_map_2d,self.combined_origin,self.last_combined_origin,self.xy_size)
+            
+            make_visited_map[self.blockspergrid_2D_map,self.threads_per_block_2D](self.entered_map_2d,
+                                                                             self.last_entered_map_2d,
+                                                                             25,
+                                                                             30,
+                                                                             self.combined_origin,
+                                                                             self.last_combined_origin,
+                                                                             self.xy_size)
 
         # set the last combined map
 
@@ -1937,6 +2000,7 @@ class Gvom:
         self.last_combined_min_height = self.combined_min_height
         self.last_combined_origin = self.combined_origin
         self.last_combined_visited_map_2d = visited_map_2d
+        copy_2d_map[self.blockspergrid_2D_map,self.threads_per_block_2D](self.last_entered_map_2d,self.entered_map_2d,self.xy_size)
 
         # Compute eigenvalues for each voxel
         #print("eigen")
@@ -1950,7 +2014,7 @@ class Gvom:
         calculate_eigenvalues[blockspergrid_cell,self.threads_per_block](self.voxels_eigenvalues,self.combined_metrics,self.combined_cell_count_cpu)
 
 
-        #print("voxel map rate = " + str(1.0 / (time.time() - voxel_start_time)))
+        print("voxel map rate = " + str(1.0 / (time.time() - voxel_start_time)))
         #map_start_time = time.time()
 
         # Make 2d maps from combined map
@@ -2032,7 +2096,8 @@ class Gvom:
                 self.x_slope_map.copy_to_host(),
                 self.y_slope_map.copy_to_host(),
                 self.height_map.copy_to_host(),
-                visited_map_2d.copy_to_host() )
+                visited_map_2d.copy_to_host(),
+                self.entered_map_2d.copy_to_host() )
 
     def make_debug_voxel_map(self):
         if(self.combined_cell_count_cpu is None):

@@ -94,7 +94,7 @@ class VoxelMapper(Node):
 
         self.timer = self.create_timer(1.0/self.freq, self.map_pub_callback)
 
-        self.get_logger().info(self.odom_frame)
+        self.get_logger().info("odom frame is: " + self.odom_frame)
 
         self.gvom = Gvom(
             self.xy_resolution,
@@ -121,7 +121,6 @@ class VoxelMapper(Node):
     def map_pub_callback(self):
         start_time = time.time()
 
-
         map_data = self.gvom.combine_maps()
         radar_data = self.gvom.combine_radar_maps()
 
@@ -129,7 +128,6 @@ class VoxelMapper(Node):
             self.get_logger().warning("map_data is None.")
             
         else:
-            print(len(map_data))
             map_origin = map_data[0] # the location of the 0,0 corner of the map in the odom frame
             obs_map = map_data[1]
             neg_map = map_data[2]
@@ -140,6 +138,7 @@ class VoxelMapper(Node):
             height_map = map_data[7]
             height_map[height_map == -1000.0] = np.NAN
             visited_map = map_data[8]
+            entered_map = map_data[9]
 
             output_map = GridMap()
             output_map.info.resolution = self.xy_resolution
@@ -155,7 +154,7 @@ class VoxelMapper(Node):
             output_map.header.frame_id = self.odom_frame
 
 
-            output_map.layers = ["positve obstacles","negative obstacles","roughness","certainty","slope x","slope y","elevation","visited"]
+            output_map.layers = ["positve obstacles","negative obstacles","roughness","certainty","slope x","slope y","elevation","visited","entered_map"]
             output_map.data.append(np_to_Float32MultiArray(obs_map))
             output_map.data.append(np_to_Float32MultiArray(neg_map))
             output_map.data.append(np_to_Float32MultiArray(rough_map))
@@ -164,6 +163,7 @@ class VoxelMapper(Node):
             output_map.data.append(np_to_Float32MultiArray(y_slope_map))
             output_map.data.append(np_to_Float32MultiArray(height_map))
             output_map.data.append(np_to_Float32MultiArray(visited_map))
+            output_map.data.append(np_to_Float32MultiArray(entered_map))
 
             self.gridmap_pub.publish(output_map)
             self.get_logger().info("published gridmap.")
