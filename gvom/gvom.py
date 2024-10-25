@@ -790,7 +790,7 @@ def make_positive_obstacle_map(combined_index_map, height_map, xy_size, z_size, 
 
 
     min_obs_height = height_map[x,y] + positive_obstacle_threshold
-    max_obs_height = height_map[x,y] + robot_height
+    max_obs_height = height_map[x,y] + robot_height + positive_obstacle_threshold
 
     min_height_index = int(math.floor((min_obs_height/z_resolution) - origin[2])) + 1
     max_height_index = int(math.floor((max_obs_height/z_resolution) - origin[2]))
@@ -810,7 +810,7 @@ def make_positive_obstacle_map(combined_index_map, height_map, xy_size, z_size, 
             
             if(hit_count[index] > 10):
                 solid_factor = float(hit_count[index]) / float(total_count[index])
-                if(solid_factor > 0.50):
+                if(solid_factor > 0.00):
                     n += float(total_count[index])
                     density += float(hit_count[index])
 
@@ -1676,7 +1676,7 @@ class Gvom:
 
         visited_map_2d = np.zeros([self.xy_size,self.xy_size],dtype=np.float32)
 
-        radius = int(math.floor(self.robot_radius / self.xy_resolution))
+        radius = 2 # int(math.floor(self.robot_radius / self.xy_resolution))
 
         for x in range(radius):
             for y in range(radius):
