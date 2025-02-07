@@ -2119,10 +2119,10 @@ class Gvom:
 
         return output_voxel_map
 
-    def make_debug_radar_map(self, threshold = None):
+    def make_debug_radar_map(self, threshold = None, return_device = "cpu"):
         if(self.radar_combined_cell_count_cpu is None):
             print("No data")
-            return None
+            return None, None
         if(threshold is None):
             threshold = self.radar_obs_density_threshold
         blockspergrid_xy = math.ceil(
@@ -2130,14 +2130,20 @@ class Gvom:
         blockspergrid_z = math.ceil(self.z_size / self.threads_per_block_3D[2])
         blockspergrid = (blockspergrid_xy, blockspergrid_xy, blockspergrid_z)
 
-        output_voxel_map = np.zeros(
-            [self.radar_combined_cell_count_cpu, 9], np.float32)
-
+        # output_voxel_map = np.zeros(
+        #     [self.radar_combined_cell_count_cpu, 9], np.float32)
+        
+        output_voxel_map = cuda.device_array([self.radar_combined_cell_count_cpu, 9],dtype=np.float32)
 
         make_radar_pointcloud[blockspergrid, self.threads_per_block_3D](
             self.radar_combined_index_map,self.radar_combined_hit_count,self.radar_combined_metrics, self.radar_combined_origin, output_voxel_map,threshold, self.xy_size, self.z_size, self.xy_resolution, self.z_resolution)
 
-        return output_voxel_map
+        if return_device == "cpu":
+            return output_voxel_map.copy_to_host(), self.radar_combined_index_map.copy_to_host()
+        elif return_device == "gpu":
+            return output_voxel_map, self.radar_combined_index_map
+    
+
 
     def make_debug_height_map(self):
         if(self.height_map is None):

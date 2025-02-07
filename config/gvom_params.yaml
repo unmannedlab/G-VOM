@@ -1,7 +1,7 @@
 gvom:
   gvom_ros2:
     ros__parameters:
-      odom_frame: "map"
+      odom_frame: "camera_init"
       xy_resolution: 0.40
       z_resolution: 0.4
       width: 512

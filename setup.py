@@ -27,7 +27,8 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'gvom = gvom.gvom_ros2:main'
+            'gvom = gvom.gvom_ros2:main',
+            'gvom_save = gvom.gvom_ros2_save_data:main'
         ],
     },
 )
