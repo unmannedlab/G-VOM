@@ -12,6 +12,8 @@ import sensor_msgs_py.point_cloud2 as pc2
 import tf2_ros
 import time
 import csv
+import h5py
+
 
 class VoxelMapper(Node):
     def __init__(self):
@@ -304,6 +306,8 @@ class VoxelMapper(Node):
 
             roi_radius = 5
 
+            
+
             # Mask for positions in `entered_map` where the value is 2
             indices = np.where(entered_map == 2)
 
@@ -319,28 +323,41 @@ class VoxelMapper(Node):
                     # cube_z_range = np.clip(np.arange(max_z_index - roi_radius, max_z_index + roi_radius + 1), 0, self.height - 1)
 
                     # Collect data within the cube
-                    cube_data = []
+                    cube_data = np.zeros([roi_radius*2 + 1,roi_radius * 2 + 1,self.height,2])
+
                     total_count = 0
+                    dx = 0
                     for x in cube_x_range:
+                        dy = 0
                         for y in cube_y_range:
+                            dz = 0
                             for z in range(self.height):
                                 idx = index_map[x + y * self.width + z * self.width * self.width]
                                 if idx >= 0:  # Only include valid radar data points
                                     radar_count = count[idx]
                                     total_count += radar_count
                                     radar_intensity = intensity[idx]
-                                    cube_data.append([traversability, x, y, z, radar_count, radar_intensity])
-                                else:
-                                    cube_data.append([traversability, x, y, z, 0, 0])
+                                    # cube_data.append([x, y, z, radar_count, radar_intensity])
+                                    cube_data[dx,dy,dz, 0] = radar_count
+                                    cube_data[dx,dy,dz, 1] = radar_intensity
+                                # else:
+                                #     cube_data.append([x, y, z, 0, 0])
+                                dz += 1
+                            dy+=1
+                        dx += 1
 
                     #print(traversability)
                     #print(cube_data)
 
-                    # Save cube data and traversability to CSV
-                    if(total_count > 100):
-                        with open('radar_traversability_filtered_tamu_full_stack_morning_run_2_2024-04-24-08-46-21.csv', 'a', newline='') as csvfile:
-                            writer = csv.writer(csvfile)
-                            writer.writerow(cube_data)
+                    filename = 'radar_traversability_filtered_tamu_full_stack_morning_run_2_2024-04-24-08-46-21.h5'
+
+                    saveData(cube_data,label=traversability,filename=filename)
+
+                    # # Save cube data and traversability to CSV
+                    # if(total_count > 100):
+                    #     with open('radar_traversability_filtered_tamu_full_stack_morning_run_2_2024-04-24-08-46-21.csv', 'a', newline='') as csvfile:
+                    #         writer = csv.writer(csvfile)
+                    #         writer.writerow(cube_data)
 
 
                     # print(np.max(weighted_intensity_at_height))
@@ -486,6 +503,49 @@ def np_to_Float32MultiArray(np_array_in):
     float32_multi_array_msg.layout.data_offset = 0
     
     return float32_multi_array_msg
+
+def saveData(data, label, filename):
+
+    d1, d2, d3, d4 = data.shape
+
+    # Create or open an HDF5 file in append mode
+    # filename = 'testData.h5'
+    with h5py.File(filename, 'a') as f:
+        # Create the dataset if it doesn't exist
+        if 'dataset' not in f:
+            # Create an empty dataset with extendable first dimension.
+            # Use maxshape=(None, d1, d2, d3) so that you can extend along axis 0.
+            dset = f.create_dataset('dataset', shape=(0, d1, d2, d3, d4),
+                                    maxshape=(None, d1, d2, d3, d4),
+                                    chunks=(1, d1, d2, d3, d4),
+                                    dtype='float32')
+        else:
+            dset = f['dataset']
+        
+        if 'labels' not in f:
+            # Create an empty dataset with extendable first dimension.
+            # Use maxshape=(None, d1, d2, d3) so that you can extend along axis 0.
+            lset = f.create_dataset('labels', shape=(0,),
+                                    maxshape=(None,),
+                                    chunks=(1,),
+                                    dtype='float32')
+        else:
+            lset = f['labels']
+
+        # Determine the current length along the first axis.
+        current_len = dset.shape[0]
+        # Extend the dataset by one along the first dimension.
+        dset.resize(current_len + 1, axis=0)
+        # Append the new array at the new index.
+        dset[current_len, ...] = data
+
+    
+        # Determine the current length along the first axis.
+        current_len = lset.shape[0]
+        # Extend the dataset by one along the first dimension.
+        lset.resize(current_len + 1, axis=0)
+        # Append the new array at the new index.
+        lset[current_len, ...] = label
 
 if __name__ == '__main__':
     main()

@@ -585,7 +585,7 @@ def combine_2d_map(combined_output_map, input_map, combined_origin, old_origin, 
     #combined_output_map[x,y] = input_map[x+dx,y+dy]
 
 @cuda.jit
-def make_visited_map(output_map, input_map, close_dist, far_dist, combined_origin, old_origin, xy_size):
+def make_visited_map(output_map, input_map, close_dist, far_dist, combined_origin, old_origin, xy_size, xy_resolution):
     # 0: unknown
     # 1: has entered within near dist
     # 2: to be sent
@@ -608,6 +608,7 @@ def make_visited_map(output_map, input_map, close_dist, far_dist, combined_origi
     # calculate new values
 
     dist = (x - xy_size/2) * (x - xy_size/2) + (y - xy_size/2) * (y - xy_size/2)
+    dist *= xy_resolution*xy_resolution
 
     if(output_map[x,y] == 2):
         output_map[x,y] = 3
@@ -1987,11 +1988,12 @@ class Gvom:
             
             make_visited_map[self.blockspergrid_2D_map,self.threads_per_block_2D](self.entered_map_2d,
                                                                              self.last_entered_map_2d,
-                                                                             25,
-                                                                             30,
+                                                                             18,
+                                                                             20,
                                                                              self.combined_origin,
                                                                              self.last_combined_origin,
-                                                                             self.xy_size)
+                                                                             self.xy_size,
+                                                                             self.xy_resolution)
 
         # set the last combined map
 

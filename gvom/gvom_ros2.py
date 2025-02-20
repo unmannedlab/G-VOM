@@ -14,6 +14,7 @@ import time
 import csv
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import numba
 from numba import cuda
 import math
@@ -25,43 +26,25 @@ encoder_hidden = 2048
 classifier_hidden = 2048
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-threads_per_block_2D = (16, 16)
+threads_per_block_3D = (8, 8, 4)
+
 
 @cuda.jit
-def generate_radar_model_data(radar_voxel_map, radar_combined_index_map,output_intensity_map,output_count_map, xy_size, z_size, radius):
-    x, y = cuda.grid(2)
-    if(x >= xy_size - radius or y >= xy_size - radius or x < radius or y < radius):
+def generate_radar_model_data(radar_voxel_map, radar_combined_index_map, output_map, xy_size, z_size, radius):
+    x, y, z  = cuda.grid(3)
+    if(x >= xy_size or y >= xy_size or z >= z_size or x < 0 or y < 0 or z < 0):
         return
     
-    max_weighted_intensity = 0.0
-    max_index = -1
+    index = int(radar_combined_index_map[int(x + y * xy_size + z * xy_size * xy_size)])
+    if(index >= 0):
+        output_map[x,y,z,0] = radar_voxel_map[index][4] / 65536.0 # intensity # radar_voxel_map[index][3] # count
+        output_map[x,y,z,1] = radar_voxel_map[index][4] / 65536.0 # intensity
 
-    for z in range(radius, z_size - radius):
-        index = int(radar_combined_index_map[int(x + y * xy_size + z * xy_size * xy_size)])
-        if(index >= 0):
-            weighted_intensity = radar_voxel_map[index][3] * radar_voxel_map[index][4]
-
-            if(weighted_intensity > max_weighted_intensity):
-                max_weighted_intensity = weighted_intensity
-                max_index = z
-
-    if max_index >= 0:
-        k = 0
-        for dx in range(x - radius, x + radius + 1):
-            for dy in range(y - radius, y + radius + 1):
-                for dz in range(max_index - radius, max_index + radius + 1):
-                    index = int(radar_combined_index_map[int(dx + dy * xy_size + dz * xy_size * xy_size)])
-                    if(index >= 0):
-                        output_intensity_map[(x-radius) + (y-radius) * (xy_size - radius*2)][k] = radar_voxel_map[index][4]
-                        output_count_map[(x-radius) + (y-radius) * (xy_size - radius*2)][k] = radar_voxel_map[index][3]
-                    else:
-                        output_intensity_map[(x-radius) + (y-radius) * (xy_size - radius*2)][k] = 0
-                        output_count_map[(x-radius) + (y-radius) * (xy_size - radius*2)][k] = 0
-                    k += 1
     else:
-        for k in range((radius*2 + 1) * (radius*2 + 1) * (radius*2 + 1)):
-            output_intensity_map[(x-radius) + (y-radius) * (xy_size - radius*2)][k] = 0
-            output_count_map[(x-radius) + (y-radius) * (xy_size - radius*2)][k] = 0
+        output_map[x,y,z,0] = 0
+        output_map[x,y,z,1] = 0
+
+
 
 class EncoderDecoderModel(nn.Module):
     def __init__(self, input_size, latent_dim=16):
@@ -117,6 +100,50 @@ def eval_classifier(encoder, classifier, count, intensity):
 
         return predicted
                 
+class Conv3DTo2DNet(nn.Module):
+    def __init__(self):
+        super(Conv3DTo2DNet, self).__init__()
+        
+        # First 3D Conv now accepts 2 channels
+        self.conv3d_1 = nn.Conv3d(in_channels=2, out_channels=64, kernel_size=(11, 11, 11), stride=1, padding=0, bias=True)
+        
+        # # Collapse the Z dimension (64 → 1)
+        # self.depth_collapse = nn.Conv3d(in_channels=32, out_channels=64, kernel_size=(1, 1, 54), stride=(1, 1, 1))
+                
+        # Convert to 2D by reshaping
+        self.conv2d_1 = nn.Conv2d(in_channels=64, out_channels=32, kernel_size=1, stride=1, padding=0, bias=True)
+        self.conv2d_2 = nn.Conv2d(in_channels=32, out_channels=1, kernel_size=1, stride=1, padding=0, bias=True)
+        
+    def forward(self, x):
+        x = F.relu(self.conv3d_1(x))  # 3D convolution
+        # x = F.relu(self.depth_collapse(x))  # Collapse Z dimension
+
+        # x = x.squeeze(4) 
+        x = x.mean(dim=4)
+
+        x = F.relu(self.conv2d_1(x))  # 2D convolution
+        x = self.conv2d_2(x)  # Output layer (2D)
+
+        return x.squeeze()  # Ensure final output is 2D
+
+def run_con3d_model(model, test_data):
+    """
+    Args:
+        model: pytorch model
+        test_data: Numpy array of shape (X, Y, Z, 2).
+    """
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    model.eval()
+
+    test_tensor = torch.tensor(test_data).permute(3, 0, 1, 2).unsqueeze(0).to(device)  # (1, 2, 256, 256, 64)
+
+    with torch.no_grad():
+        output = model(test_tensor)
+
+    return output.to('cpu').numpy()
+    print("Test Output Shape:", output.shape)  # Should be (1, 256, 256)
+
 class VoxelMapper(Node):
     def __init__(self):
         super().__init__('voxel_mapper')
@@ -227,20 +254,25 @@ class VoxelMapper(Node):
 
         self.roi_radius = 5
 
-        self.autoencoder_path = "/phoenix/src/G-VOM/gvom/autoencoder.pth"
-        self.classifier_path = "/phoenix/src/G-VOM/gvom/classifier.pth"
+        # self.autoencoder_path = "/phoenix/src/G-VOM/gvom/autoencoder.pth"
+        # self.classifier_path = "/phoenix/src/G-VOM/gvom/classifier.pth"
+
+        self.conv3d_model = Conv3DTo2DNet().to(device)
+        self.conv3d_model.load_state_dict(torch.load("/phoenix/src/G-VOM/gvom/con3d_model.pth"))
 
         # self.radar_mesh_count_data = np.zeros([(self.width - 2 * self.roi_radius)**2, (2*self.roi_radius + 1)**3])
         # self.radar_mesh_intensity_data = np.zeros([(self.width - 2 * self.roi_radius)**2, (2*self.roi_radius + 1)**3])
 
-        self.radar_mesh_count_data = cuda.device_array([(self.width - 2 * self.roi_radius)**2, (2*self.roi_radius + 1)**3],dtype=np.float32)
-        self.radar_mesh_intensity_data = cuda.device_array([(self.width - 2 * self.roi_radius)**2, (2*self.roi_radius + 1)**3],dtype=np.float32)
+        # self.radar_mesh_count_data = cuda.device_array([(self.width - 2 * self.roi_radius)**2, (2*self.roi_radius + 1)**3],dtype=np.float32)
+        # self.radar_mesh_intensity_data = cuda.device_array([(self.width - 2 * self.roi_radius)**2, (2*self.roi_radius + 1)**3],dtype=np.float32)
 
-        self.autoencoder = EncoderDecoderModel(input_size=input_size, latent_dim=latent_dim).to(device)
-        self.autoencoder.load_state_dict(torch.load(self.autoencoder_path))
+        self.radar_data = cuda.device_array([self.width, self.width, self.height, 2],dtype=np.float32)
 
-        self.classifier = LatentSpaceClassifier(latent_dim=latent_dim, hidden_dim=classifier_hidden, num_classes=4).to(device)
-        self.classifier.load_state_dict(torch.load(self.classifier_path))
+        # self.autoencoder = EncoderDecoderModel(input_size=input_size, latent_dim=latent_dim).to(device)
+        # self.autoencoder.load_state_dict(torch.load(self.autoencoder_path))
+
+        # self.classifier = LatentSpaceClassifier(latent_dim=latent_dim, hidden_dim=classifier_hidden, num_classes=4).to(device)
+        # self.classifier.load_state_dict(torch.load(self.classifier_path))
 
 
 
@@ -397,40 +429,48 @@ class VoxelMapper(Node):
             # 2: visable and no obstacles
             # 3: non-traversable
 
-            blockspergrid_xy = math.ceil(self.width / threads_per_block_2D[0])
-            blockspergrid = (blockspergrid_xy, blockspergrid_xy)
+            blockspergrid_xy = math.ceil(self.width / threads_per_block_3D[0])
+            blockspergrid_z = math.ceil(self.height / threads_per_block_3D[2])
+            blockspergrid = (blockspergrid_xy, blockspergrid_xy, blockspergrid_z)
 
             self.get_logger().info("getting radar data for traversability")
 
-            generate_radar_model_data[blockspergrid, threads_per_block_2D](radar_voxel, index_map,self.radar_mesh_intensity_data,self.radar_mesh_count_data, self.width, self.height, self.roi_radius)
+            generate_radar_model_data[blockspergrid, threads_per_block_3D](radar_voxel, index_map,self.radar_data, self.width, self.height, self.roi_radius)
 
-            torch_intensity_tensor = torch.empty(((self.width - 2 * self.roi_radius)**2, (2*self.roi_radius + 1)**3), dtype=torch.float32, device="cuda")
-            torch_intensity_tensor.data_ptr()  # Ensure tensor uses the device memory
-            torch_intensity_tensor.data.copy_(torch.as_tensor(self.radar_mesh_intensity_data, dtype=torch.float32, device="cuda"))
+            # torch_intensity_tensor = torch.empty(((self.width - 2 * self.roi_radius)**2, (2*self.roi_radius + 1)**3), dtype=torch.float32, device="cuda")
+            # torch_intensity_tensor.data_ptr()  # Ensure tensor uses the device memory
+            # torch_intensity_tensor.data.copy_(torch.as_tensor(self.radar_mesh_intensity_data, dtype=torch.float32, device="cuda"))
 
-            torch_count_tensor = torch.empty(((self.width - 2 * self.roi_radius)**2, (2*self.roi_radius + 1)**3), dtype=torch.float32, device="cuda")
-            torch_count_tensor.data_ptr()  # Ensure tensor uses the device memory
-            torch_count_tensor.data.copy_(torch.as_tensor(self.radar_mesh_count_data, dtype=torch.float32, device="cuda"))
+            # torch_count_tensor = torch.empty(((self.width - 2 * self.roi_radius)**2, (2*self.roi_radius + 1)**3), dtype=torch.float32, device="cuda")
+            # torch_count_tensor.data_ptr()  # Ensure tensor uses the device memory
+            # torch_count_tensor.data.copy_(torch.as_tensor(self.radar_mesh_count_data, dtype=torch.float32, device="cuda"))
 
-            self.autoencoder.eval()
-            self.classifier.eval()
-            predicted = None
-            with torch.no_grad():
-                x = torch.cat((torch_count_tensor, torch_intensity_tensor), dim=1).to(device)
-                batch_size = 502
-                num_batches = x.size(0) // batch_size
-                results = []
-                for i in range(num_batches):
-                    batch = x[i * batch_size:(i + 1) * batch_size]
-                    latent = self.autoencoder(batch)
-                    outputs = self.classifier(latent[0])
-                    results.append(outputs)
+            # torch_radar_tensor = torch.empty((self.width,self.width,self.height,2), dtype=torch.float32, device="cuda")
+            # torch_radar_tensor.data_ptr()  # Ensure tensor uses the device memory
+            # torch_radar_tensor.data.copy_(torch.as_tensor(self.radar_data, dtype=torch.float32, device="cuda"))
+
+            traversability = run_con3d_model(self.conv3d_model, self.radar_data.copy_to_host())
+
+
+            # self.autoencoder.eval()
+            # self.classifier.eval()
+            # predicted = None
+            # with torch.no_grad():
+            #     x = torch.cat((torch_count_tensor, torch_intensity_tensor), dim=1).to(device)
+            #     batch_size = 502
+            #     num_batches = x.size(0) // batch_size
+            #     results = []
+            #     for i in range(num_batches):
+            #         batch = x[i * batch_size:(i + 1) * batch_size]
+            #         latent = self.autoencoder(batch)
+            #         outputs = self.classifier(latent[0])
+            #         results.append(outputs)
                 
-                outputs = torch.cat(results).to("cpu")
+            #     outputs = torch.cat(results).to("cpu")
 
-                _, predicted = torch.max(outputs, 1)
+            #     _, predicted = torch.max(outputs, 1)
 
-                self.get_logger().info(str(predicted.shape))
+            #     self.get_logger().info(str(predicted.shape))
 
             self.get_logger().info("done! getting radar data for traversability")
             
@@ -447,10 +487,10 @@ class VoxelMapper(Node):
             output_map.header.stamp = self.get_clock().now().to_msg()
             output_map.header.frame_id = self.odom_frame
 
-            traversability = np.array(predicted).reshape([(self.width - 2*self.roi_radius),(self.width - 2*self.roi_radius)])
+            # traversability = np.array(predicted).reshape([(self.width - 2*self.roi_radius),(self.width - 2*self.roi_radius)])
 
             output_map.layers = ["traversability"]
-            output_map.data.append(np_to_Float32MultiArray(traversability.transpose()))
+            output_map.data.append(np_to_Float32MultiArray(traversability))
 
             self.gridmap_radar_traversability_pub.publish(output_map)
             ### Debug maps
